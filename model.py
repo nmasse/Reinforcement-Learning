@@ -5,17 +5,16 @@ Contributions from Gregory Grant, Catherine Lee
 
 import tensorflow as tf
 import numpy as np
-import stimulus, stimulus2, stimulus3, multistim
-import analysis
 import AdamOpt
 from parameters import *
-import pickle
+import stimulus
 import matplotlib.pyplot as plt
 import os, sys, time
-from scipy import stats
 
-# Ignore "use compiled version of TensorFlow" errors
-os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
+try:
+    import gym
+except ModuleNotFoundError:
+    quit('Must use python3.5 due to gym not being installed in Anaconda.')
 
 """
 Model setup and execution
@@ -80,7 +79,6 @@ class AutoModel:
 
     def calc_error(self, target, prediction):
         return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
-        #return (target - prediction),(prediction - target)
 
 
     def layer(self, lid, target, time):
@@ -119,10 +117,6 @@ class AutoModel:
         else:
             rnn_next = tf.zeros_like(rnn_state)
 
-        #print('W_err1',W_err1)
-        #print('err_stim1',err_stim1)
-        #print('W_rnn',W_rnn)
-        #print('rnn_state',rnn_state)
         inp_act = tf.tensordot(W_err1, err_stim1, [[2],[0]]) + tf.tensordot(W_err2, err_stim2, [[2],[0]]) # Error activity
         rnn_act = tf.tensordot(W_rnn, rnn_state, [[2],[0]])       # RNN activity
         tot_act = par['alpha_neuron']*(inp_act + rnn_act)         # Modulating
@@ -205,7 +199,6 @@ class AutoModel:
         for the current task
         """
 
-        #self.wiring_loss = tf.constant(0.)
         with tf.variable_scope('layer0', reuse=True):
             W_err1 = tf.get_variable('W_err1')
             W_err2 = tf.get_variable('W_err2')
@@ -216,24 +209,8 @@ class AutoModel:
         self.wiring_loss = tf.reduce_sum(tf.abs(W_rnn)) + tf.reduce_sum(tf.abs(W_pred1)) + \
             tf.reduce_sum(tf.abs(W_latent_sigma)) + tf.reduce_sum(tf.abs(W_latent_mu)) + tf.reduce_sum(tf.abs(W_err1)) + tf.reduce_sum(tf.abs(W_err2))
         self.wiring_loss *= par['wiring_cost']
-        """
-        for var in [var for var in variables if ('W' in var.op.name and not 'td' in var.op.name)]:
-            if 'W_in' in var.op.name:
-                self.wiring_loss += tf.reduce_sum(tf.nn.relu(var) * tf.constant(par['w_in_pos'], dtype=tf.float32))
-            elif 'W_rnn' in var.op.name:
-                self.wiring_loss += tf.reduce_sum(tf.nn.relu(var) * tf.constant(par['w_rnn_pos'], dtype=tf.float32))
-            elif 'W_out' in var.op.name:
-                self.wiring_loss += tf.reduce_sum(tf.nn.relu(var) * tf.constant(par['w_out_pos'], dtype=tf.float32))
-        self.wiring_loss *= par['wiring_cost']
-        """
 
         self.error_loss = tf.constant(0.)
-        """
-        for m, h in zip(self.mask, self.error_history[1]):
-            for l in h:
-                #self.error_loss += tf.reduce_mean(tf.square(m[tf.newaxis,:]*l))
-                self.error_loss += tf.reduce_mean(tf.square(l))
-        """
         for j,eh in enumerate(self.error_history):
             if j>-1:
                 for l in eh:
@@ -243,7 +220,6 @@ class AutoModel:
         for h in self.hidden_history:
             for l in h:
                 self.spike_loss += par['spike_cost']*tf.reduce_mean(l)
-
 
         # Gradient of the loss+aux function, in order to both perform training and to compute delta_weights
         with tf.control_dependencies([self.error_loss, self.aux_loss,  self.spike_loss, self.latent_loss]):
@@ -416,32 +392,6 @@ def main(save_fn, gpu_id = None):
                     #print('Iter ', i, 'Perf Loss ', perf_loss, ' AuxLoss ', aux_loss, ' Mean sr ', np.mean(h), ' WL ', wiring_loss)
                     print('Iter ', str(i).ljust(3), 'Perf Loss ', perf_loss, ' Mean sr ', np.mean(h[0]), ' WL ', wiring_loss, ' LL ', latent_loss)
 
-                if i//(10*par['iters_between_outputs']) == i/(10*par['iters_between_outputs']):
-
-                    t0 = (par['dead_time'] + par['fix_time'] + par['sample_time'] + 200)//par['dt']
-                    t1 = (par['dead_time'] + par['fix_time'] + par['sample_time'] + par['delay_time'])//par['dt']
-                    h_stacked = [np.stack(h[n]) for n in range(len(par['n_hidden']))]
-                    mean_h = [np.mean(h_stacked[n][t0:t1, :, :], axis=0)  for n in range(len(par['n_hidden']))]
-
-                    p = [np.zeros((3,par['n_hidden'][n])) for n in range(len(par['n_hidden']))]
-                    for m in range(len(par['n_hidden'])):
-                        for n in range(par['n_hidden'][m]):
-                            p[m][0,n], p[m][1,n], p[m][2,n] = two_way_anova(trial_info['rule'], trial_info['sample'], mean_h[m][n,:])
-
-
-                    f = plt.figure(figsize=(12,8))
-                    for n in range(len(par['n_hidden'])):
-                        ax = f.add_subplot(1, len(par['n_hidden']), n+1)
-                        ax.plot(np.maximum(-9,np.log10(p[n][0,:])),'b')
-                        ax.plot(np.maximum(-9,np.log10(p[n][1,:])),'r')
-                        ax.plot(np.maximum(-9,np.log10(p[n][2,:])),'g')
-
-                    plt.show()
-
-
-
-
-
                     s = np.stack(pred_hist[0],axis=0)
                     e = np.stack(err_hist[0],axis=0)
                     #s = np.transpose(s,[2,1,0,3])
@@ -507,78 +457,6 @@ def main(save_fn, gpu_id = None):
             pickle.dump(save_results, open(par['save_dir'] + save_fn, 'wb'))
 
     print('\nModel execution complete.')
-
-
-def two_way_anova(x1, x2, y):
-
-    N = len(y)
-    df_a = len(np.unique(x1)) - 1
-    df_b = len(np.unique(x2)) - 1
-    df_axb = df_a*df_b
-    df_w = N - (df_a+1)*(df_b+1)
-
-    grand_mean = np.mean(y)
-    ssq_a = sum([(np.mean(y[np.where(x1==l)[0]])-grand_mean)**2 for l in x1])
-    ssq_b = sum([(np.mean(y[np.where(x2==l)[0]])-grand_mean)**2 for l in x2])
-    ssq_t = np.sum((y-grand_mean)**2)
-
-    m = []
-    for a in np.unique(x1):
-        ind_a = np.where(x1==a)[0]
-        x2a = x2[ind_a]
-        ya = y[ind_a]
-        for j,b in enumerate(x2a):
-            ind_b = np.where(x2a == b)[0]
-            m.append(np.sum((ya[j] - np.mean(ya[ind_b]))**2))
-    ssq_w = np.sum(m)
-
-    ssq_axb = ssq_t-ssq_a-ssq_b-ssq_w
-    ms_a = ssq_a/df_a
-    ms_b = ssq_b/df_b
-    ms_axb = ssq_axb/df_axb
-    ms_w = ssq_w/df_w + 1e-9
-    f_a = ms_a/ms_w
-    f_b = ms_b/ms_w
-    f_axb = ms_axb/ms_w
-    p_a = stats.f.sf(f_a, df_a, df_w)
-    p_b = stats.f.sf(f_b, df_b, df_w)
-    p_axb = stats.f.sf(f_axb, df_axb, df_w)
-
-    return p_a, p_b, p_axb
-
-
-
-def anova_custom(x, conds):
-
-    m = len(np.unique(conds))
-    lx = len(x)
-    xr = x - np.mean(x)
-    xm = np.zeros((m))
-    countx = np.zeros((m))
-    for i in range(m):
-        ind = np.where(conds==i)[0]
-        countx[i] = len(ind)
-        xm[i] = np.mean(xr[ind])
-
-    gm = np.mean(xr)
-    df1 = np.sum(countx > 0) - 1
-    df2 = lx - df1 - 1
-    xc = xm - gm
-    ind0 = np.where(countx == 0)[0]
-    xc[ind0] = 0
-    RSS = np.sum(countx*(xc**2))
-    TSS = np.sum((xr - gm)**2)
-    SSE = TSS - RSS
-    if df > 0:
-        mse = SSE/df2
-    else:
-        mse = 1e32
-
-    F = (RSS/df1)/mse
-
-    return F, SSE, TSS, RSS, df1, df2
-
-
 
 
 main('testing', str(sys.argv[1]))
