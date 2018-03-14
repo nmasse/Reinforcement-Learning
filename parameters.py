@@ -69,13 +69,13 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_train_size'      : 1024,
+    'batch_train_size'      : 16,
     'num_iterations'        : 1000,
     'iters_between_outputs' : 100,
 
     # Task specs
     'environment_type'      : 'CartPole-v0',
-    'num_steps'             : 1000,
+    'num_steps'             : 10,
 
     # Save paths
     'save_fn'               : 'model_results.pkl',
