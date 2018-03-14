@@ -124,6 +124,7 @@ class AutoModel:
 
             total_error, rnn_state, action_state = self.layer(stim, t)
             obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32,tf.float32,tf.float32])
+            obs = tf.reshape(obs, [16,4])
 
             self.error_history.append(total_error)
             self.hidden_history.append(rnn_state)
