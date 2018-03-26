@@ -1,17 +1,23 @@
 import numpy as np
 import gym
 from parameters import *
+import contextlib
 
 
 class GymStim:
 
     def __init__(self):
+        # Set up a new environment
         self.ensemble, self.obs, self.rew, self.done, self.act_set = self.create_ensemble()
         self.ensemble_reset()
 
     def create_ensemble(self):
-        sample_env = gym.make(par['environment_type'])
+
+        # Create demo environment
+        with contextlib.redirect_stdout(None):
+            sample_env = gym.make(par['environment_type'])
         sample_env.reset()
+
         obs, rew, done, info = sample_env.step(sample_env.action_space.sample())
         envtype   = np.dtype(type(sample_env))
         num_acts  = sample_env.action_space.n
@@ -23,8 +29,9 @@ class GymStim:
         rew       = np.zeros([par['batch_train_size']])
         act_set   = np.arange(num_acts)
 
-        for i in range(par['batch_train_size']):
-            ensemble[i] = gym.make(par['environment_type'])
+        with contextlib.redirect_stdout(None):      # Suppress datatype warnings
+            for i in range(par['batch_train_size']):
+                ensemble[i] = gym.make(par['environment_type'])
 
         return ensemble, obs, rew, done, act_set
 

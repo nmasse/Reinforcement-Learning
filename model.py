@@ -1,6 +1,6 @@
 """
 Nicolas Masse 2017
-Contributions from Gregory Grant, Catherine Lee
+Contributions from Gregory Grant
 """
 
 import tensorflow as tf
@@ -44,7 +44,7 @@ class AutoModel:
     def interact(self, action):
         act_eff = np.int32(np.argmax(action, axis=0))
         obs, rew, done = self.stim.run_step(act_eff)
-        return [np.float32(obs), np.float32(rew), np.float32(done)]
+        return [np.float32(obs.T), np.float32(rew), np.float32(done)]
 
 
     def initialize_variables(self):
@@ -63,7 +63,8 @@ class AutoModel:
                 tf.get_variable('b_pred', initializer = np.zeros((par['n_input'],1), dtype = np.float32), trainable=True)
                 tf.get_variable('b_act', initializer = np.zeros((par['n_output'],1), dtype = np.float32), trainable=True)
 
-                tf.get_variable('W_rnn', shape = [par['n_hidden'][lid], par['n_dendrites'], par['n_hidden'][lid]], initializer = tf.random_uniform_initializer(-c, c), trainable=True)
+                tf.get_variable('W_rnn', shape = [par['n_hidden'][lid], par['n_dendrites'], par['n_hidden'][lid]],
+                                initializer = tf.random_uniform_initializer(-c, c), trainable=True)
                 tf.get_variable('b_rnn', initializer = np.zeros((par['n_hidden'][lid],1), dtype = np.float32), trainable=True)
 
 
@@ -72,24 +73,17 @@ class AutoModel:
 
 
     def layer(self, target, time, lid=0):
+
         # Loading all weights and biases
         with tf.variable_scope('layer'+str(lid), reuse=True):
-            W_err1 = tf.get_variable('W_err1') #positive error
-            W_err2 = tf.get_variable('W_err2') #negative error
+            W_err1 = tf.get_variable('W_err1')
+            W_err2 = tf.get_variable('W_err2')
             W_pred = tf.get_variable('W_pred')
             b_pred = tf.get_variable('b_pred')
             W_act  = tf.get_variable('W_act')
             b_act  = tf.get_variable('b_act')
             W_rnn  = tf.get_variable('W_rnn')
             b_rnn  = tf.get_variable('b_rnn')
-
-
-        # Masking certain weights
-        #W_rnn *= tf.constant(par['w_rnn_mask'], dtype=tf.float32)
-        #if par['EI']:
-            # ensure excitatory neurons only have postive outgoing weights,
-            # and inhibitory neurons have negative outgoing weights
-            #W_rnn = tf.tensordot(tf.nn.relu(W_rnn), tf.constant(par['EI_matrix']), [[2],[0]])
 
         # Processing data for RNN step
         err_stim1, err_stim2 = self.calc_error(target, self.pred_state)
@@ -119,16 +113,26 @@ class AutoModel:
 
         # Iterate through time via the input data
         for t in range(par['num_steps']):
-            print(t, end='\r')
+
+            # Call for a stimulus
             stim = obs if t != 0 else tf.zeros(par['observation_shape'])
 
+            # Calculate output
             total_error, rnn_state, action_state = self.layer(stim, t)
             obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32,tf.float32,tf.float32])
-            obs = tf.reshape(obs, [16,4])
 
+            # Explicitly set observation shape (not required, but recommended)
+            obs.set_shape([*par['observation_shape'],1])
+
+            # Expand error shape if necesary
+            if total_error.shape == (4,):
+                total_error = tf.transpose(tf.stack([total_error]*par['batch_train_size'], axis=0))
+
+            # Log network state
             self.error_history.append(total_error)
             self.hidden_history.append(rnn_state)
 
+            # Log environment and action state
             self.observation_history.append(obs)
             self.prediction_history.append(self.pred_state)
             self.action_history.append(action_state)
@@ -143,7 +147,7 @@ class AutoModel:
 
         # Calculate losses
         self.error_loss = tf.reduce_mean(tf.square(self.error_history))
-        #self.spike_loss = par['spike_cost']*tf.reduce_mean(tf.abs(self.hidden_history))
+        self.spike_loss = par['spike_cost']*tf.reduce_mean(tf.abs(self.hidden_history))
 
         # Build train operation
         self.loss = self.error_loss # + self.spike_loss
@@ -153,17 +157,10 @@ class AutoModel:
 
 def main():
 
-    """ Reset TensorFlow before running anything """
+    # Reset TensorFlow before running anything
     tf.reset_default_graph()
 
-    """ Load stimulus """
-
-
-    """ Define placeholders """
-    inp = tf.placeholder(tf.float32, [16,4])
-
-
-    """ Start TensorFlow session """
+    # Start TensorFlow session
     with tf.Session() as sess:
         model = AutoModel()
 
@@ -171,14 +168,26 @@ def main():
         init = tf.global_variables_initializer()
         sess.run(init)
 
+        # Training Loop
+        for i in range(par['num_iterations']):
+
+            # Train network and pull network information
+            _, obs, pred, act, rew, comp, err, hid, perf_loss, spike_loss = sess.run([
+                    model.train_op, model.observation_history, model.prediction_history, \
+                    model.action_history, model.reward_history, model.completion_history,\
+                    model.error_history, model.hidden_history, model.error_loss, model.spike_loss])
+
+            # Display network performance
+            if i%par['iters_between_outputs'] == 0 and i != 0:
+                feedback = ['Iter. ' + str(i), 'Perf. Loss: ' + str(np.round(perf_loss, 4)),
+                            'Spike Loss: ' + str(np.round(spike_loss, 4))]
+                print(' | '.join(feedback))
+
+        print('Simulation complete.')
 
 
-
-        out = sess.run([model.train_op, model.observation_history, model.prediction_history, \
-                model.action_history, model.reward_history, model.completion_history,\
-                model.error_history, model.hidden_history])
-        print(out[1])
-        print('Success!')
-
-
-main()
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        quit('Quit via KeyboardInterrupt')

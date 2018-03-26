@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import gym
 import matplotlib.pyplot as plt
-import os
+import os, sys, contextlib
 from itertools import product
 
 print("--> Loading parameters...")
@@ -58,7 +58,7 @@ par = {
     'kappa'                 : 2.0,        # concentration scaling factor for von Mises
 
     # Cost parameters
-    'spike_cost'            : 1e-7,
+    'spike_cost'            : 1e-3,
     'wiring_cost'           : 1e-3, #1e-6,
     'latent_cost'           : 1e-4,
 
@@ -69,13 +69,13 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_train_size'      : 16,
+    'batch_train_size'      : 256,      # The number of Gym environments being run simultaneously
     'num_iterations'        : 1000,
-    'iters_between_outputs' : 100,
+    'iters_between_outputs' : 20,
 
     # Task specs
     'environment_type'      : 'CartPole-v0',
-    'num_steps'             : 10,
+    'num_steps'             : 20,
 
     # Save paths
     'save_fn'               : 'model_results.pkl',
@@ -176,7 +176,8 @@ def update_dependencies():
     par['noise_in'] = np.sqrt(2/par['alpha_neuron'])*par['noise_in_sd'] # since term will be multiplied by par['alpha_neuron']
 
     # Get network sizes and action set
-    sample_env = gym.make(par['environment_type'])
+    with contextlib.redirect_stdout(None):
+        sample_env = gym.make(par['environment_type'])
     sample_env.reset()
     obs, _, _, _ = sample_env.step(sample_env.action_space.sample())
     par['action_shape'] = sample_env.action_space.n
