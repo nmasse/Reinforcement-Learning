@@ -13,21 +13,11 @@ class GymStim:
 
     def create_ensemble(self):
 
-        # Create demo environment
-        with contextlib.redirect_stdout(None):
-            sample_env = gym.make(par['environment_type'])
-        sample_env.reset()
-
-        obs, rew, done, info = sample_env.step(sample_env.action_space.sample())
-        envtype   = np.dtype(type(sample_env))
-        num_acts  = sample_env.action_space.n
-        obs_shape = np.shape(obs)
-
-        ensemble  = np.empty(par['batch_train_size'], dtype=envtype)
-        obs       = np.zeros([par['batch_train_size'], *obs_shape])
+        ensemble  = np.empty(par['batch_train_size'], dtype=par['envtype'])
+        obs       = np.zeros([par['batch_train_size'], *par['observation_shape']])
         done      = np.full([par['batch_train_size']], False)
         rew       = np.zeros([par['batch_train_size']])
-        act_set   = np.arange(num_acts)
+        act_set   = par['action_set']
 
         with contextlib.redirect_stdout(None):      # Suppress datatype warnings
             for i in range(par['batch_train_size']):
@@ -41,18 +31,23 @@ class GymStim:
             self.obs[i] = self.ensemble[i].reset()
 
 
-    def run_step(self, acts=None):
-        if acts is None:
-            print('Randomizing actions.')
-            acts = np.random.choice(self.act_set, par['batch_train_size'])
-
-        for i in range(par['batch_train_size']):
+    def run_step(self, acts):
+        ### THIS IS CALLED FROM WITHIN THE TENSORFLOW GRAPH ###
+        
+        for i, act in zip(range(par['batch_train_size']), acts):
             if not self.done[i]:
-                self.obs[i], self.rew[i], self.done[i], _ = self.ensemble[i].step(acts[i])
+
+                # This odd-looking conditional is necessary to
+                # prevent weird indexing bugs in the Gym
+                if par['action_type'] == 'continuum':
+                    self.obs[i], self.rew[i], self.done[i], _ = self.ensemble[i].step(np.array([act]))
+                elif par['action_type'] == 'discrete':
+                    self.obs[i], self.rew[i], self.done[i], _ = self.ensemble[i].step(act)
             else:
                 self.rew[i] = 0.
 
         return self.obs, self.rew, self.done
+
 """
 ###############################
 ### Minimal Working Example ###
@@ -67,6 +62,7 @@ actions = stim.act_set
 
 # Now entering the main loop
 for t in range(par['num_steps']):
+
     # The network generates a response (however it decides to)
     network_resp = np.random.choice(actions, par['batch_train_size'])
 

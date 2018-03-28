@@ -74,7 +74,7 @@ par = {
     'iters_between_outputs' : 20,
 
     # Task specs
-    'environment_type'      : 'CartPole-v0',
+    'environment_type'      : 'Pendulum-v0', #'CartPole-v0', 'Pendulum-v0'
     'num_steps'             : 20,
 
     # Save paths
@@ -175,20 +175,42 @@ def update_dependencies():
     par['noise_rnn'] = np.sqrt(2*par['alpha_neuron'])*par['noise_rnn_sd']
     par['noise_in'] = np.sqrt(2/par['alpha_neuron'])*par['noise_in_sd'] # since term will be multiplied by par['alpha_neuron']
 
-    # Get network sizes and action set
-    with contextlib.redirect_stdout(None):
-        sample_env = gym.make(par['environment_type'])
-    sample_env.reset()
-    obs, _, _, _ = sample_env.step(sample_env.action_space.sample())
-    par['action_shape'] = sample_env.action_space.n
-    par['observation_shape'] = np.shape(obs)
-    par['action_set'] = np.arange(par['action_shape'])
-
-    par['n_output'] = par['action_shape']
-    par['n_input'] = par['observation_shape'][0]
-
     # The time step in seconds
     par['dt_sec'] = par['dt']/1000
+
+    #############################################
+    ### Setting up the OpenAI Gym environment ###
+    #############################################
+
+    # Create a sample environment
+    with contextlib.redirect_stdout(None):
+        sample_env = gym.make(par['environment_type'])
+
+    par['envtype'] = np.dtype(type(sample_env))
+    sample_env.reset()
+    obs, _, _, _ = sample_env.step(sample_env.action_space.sample())
+
+    # Check observation shape and action set
+    par['observation_shape'] = np.shape(obs)
+
+    # Determine action space setup
+    if type(sample_env.action_space) == gym.spaces.Box:
+        par['action_type'] = 'continuum'
+        par['action_shape'] = sample_env.action_space.shape
+        par['action_set'] = (sample_env.action_space.low, sample_env.action_space.high)
+
+        # Translate to inputs and outputs
+        par['n_output'] = par['action_shape'][0]
+        par['n_input'] = par['observation_shape'][0]
+
+    elif type(sample_env.action_space) == gym.spaces.Discrete:
+        par['action_type'] = 'discrete'
+        par['action_shape'] = sample_env.action_space.n
+        par['action_set'] = np.arange(par['action_shape'])
+
+        # Translate to inputs and outputs
+        par['n_output'] = par['action_shape']
+        par['n_input'] = par['observation_shape'][0]
 
 
     ####################################################################

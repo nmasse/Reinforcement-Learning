@@ -1,6 +1,5 @@
 """
-Nicolas Masse 2017
-Contributions from Gregory Grant
+Nicolas Masse and Gregory Grant, 2018
 """
 
 import tensorflow as tf
@@ -42,7 +41,12 @@ class AutoModel:
 
 
     def interact(self, action):
-        act_eff = np.int32(np.argmax(action, axis=0))
+        if par['action_type'] == 'continuum':
+            act_eff = action*(par['action_set'][1][0] - par['action_set'][0][0]) - par['action_set'][0][0]
+        elif par['action_type'] == 'discrete':
+            act_eff = np.int32(np.argmax(action, axis=0))
+
+        act_eff = np.reshape(act_eff, par['batch_train_size'])
         obs, rew, done = self.stim.run_step(act_eff)
         return [np.float32(obs.T), np.float32(rew), np.float32(done)]
 
@@ -119,13 +123,18 @@ class AutoModel:
 
             # Calculate output
             total_error, rnn_state, action_state = self.layer(stim, t)
+
+            # Placeholder operation
+            if par['action_type'] == 'continuum':
+                action_state = tf.nn.sigmoid(action_state)
+
             obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32,tf.float32,tf.float32])
 
             # Explicitly set observation shape (not required, but recommended)
             obs.set_shape([*par['observation_shape'],1])
 
             # Expand error shape if necesary
-            if total_error.shape == (4,):
+            if total_error.shape == (par['n_input'],):
                 total_error = tf.transpose(tf.stack([total_error]*par['batch_train_size'], axis=0))
 
             # Log network state
@@ -162,11 +171,13 @@ def main():
 
     # Start TensorFlow session
     with tf.Session() as sess:
+        print('--> Initializing model...')
         model = AutoModel()
 
         # Initialize session variables
         init = tf.global_variables_initializer()
         sess.run(init)
+        print('--> Model successfully initialized.\n')
 
         # Training Loop
         for i in range(par['num_iterations']):
