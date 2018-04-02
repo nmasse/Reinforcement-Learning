@@ -1,7 +1,7 @@
 import numpy as np
-import gym
 from parameters import *
 import contextlib
+import gym
 
 
 class GymStim:
@@ -33,7 +33,7 @@ class GymStim:
 
     def run_step(self, acts):
         ### THIS IS CALLED FROM WITHIN THE TENSORFLOW GRAPH ###
-        
+
         for i, act in zip(range(par['batch_train_size']), acts):
             if not self.done[i]:
 

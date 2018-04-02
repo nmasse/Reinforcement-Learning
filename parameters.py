@@ -31,7 +31,7 @@ par = {
     'num_motion_tuned'      : 36,
     'num_fix_tuned'         : 20,
     'num_rule_tuned'        : 0,
-    'n_hidden'              : [120],
+    'n_hidden'              : 120,
     'n_dendrites'           : 1,
 
     # Euclidean shape
@@ -70,11 +70,11 @@ par = {
 
     # Training specs
     'batch_train_size'      : 256,      # The number of Gym environments being run simultaneously
-    'num_iterations'        : 1000,
+    'num_iterations'        : 200,
     'iters_between_outputs' : 20,
 
     # Task specs
-    'environment_type'      : 'Pendulum-v0', #'CartPole-v0', 'Pendulum-v0'
+    'environment_type'      : 'CartPole-v0', #'CartPole-v0', 'Pendulum-v0'
     'num_steps'             : 20,
 
     # Save paths
@@ -135,19 +135,7 @@ def update_dependencies():
     Updates all parameter dependencies
     """
 
-    par['n_output'] = par['num_motion_dirs'] + 1
 
-    # Number of input neurons
-    par['n_input'] = par['num_motion_tuned'] + par['num_fix_tuned'] + par['num_rule_tuned']
-
-    # Create TD
-    """
-    par['neuron_topdown'] = []
-    par['dendrite_topdown'] = []
-    for _ in range(par['num_tasks']):
-        par['neuron_topdown'].append(np.float32(np.random.choice([0,1], par['n_hidden'], p= [par['neuron_gate_pct'], 1-par['neuron_gate_pct']])))
-        par['dendrite_topdown'].append(np.float32(np.random.choice([0,1], [par['n_hidden'], par['n_dendrites']], p= [par['dendrite_gate_pct'], 1-par['dendrite_gate_pct']])))
-    """
 
     # If num_inh_units is set > 0, then neurons can be either excitatory or
     # inihibitory; is num_inh_units = 0, then the weights projecting from
@@ -157,14 +145,13 @@ def update_dependencies():
     else:
         par['EI']  = False
 
-    par['num_exc_units'] = [int(np.round(par['n_hidden'][n]*par['exc_inh_prop'])) for n in range(len(par['n_hidden']))]
-    par['num_inh_units'] = [par['n_hidden'][n] - par['num_exc_units'][n] for n in range(len(par['n_hidden']))]
-    par['EI_list'] = [np.ones(par['n_hidden'][n], dtype=np.float32) for n in range(len(par['n_hidden']))]
+    par['num_exc_units'] = int(np.round(par['n_hidden']*par['exc_inh_prop']))
+    par['num_inh_units'] = par['n_hidden'] - par['num_exc_units']
+    par['EI_list'] = np.ones(par['n_hidden'], dtype=np.float32)
     if par['EI']:
-        for n in range(len(par['n_hidden'])):
-            par['EI_list'][n][-par['num_inh_units'][n]:] = -1.
+        par['EI_list'][-par['num_inh_units']:] = -1.
 
-    par['EI_matrix'] = [np.diag(par['EI_list'][n]) for n in range(len(par['n_hidden']))]
+    par['EI_matrix'] = np.diag(par['EI_list'])
 
     # Membrane time constant of RNN neurons
     par['alpha_neuron'] = np.float32(par['dt'])/par['membrane_time_constant']
@@ -217,7 +204,8 @@ def update_dependencies():
     ### Setting up assorted intial weights, biases, and other values ###
     ####################################################################
 
-    par['h_init'] = [0.1*np.ones((par['n_hidden'][n], par['batch_train_size']), dtype=np.float32)  for n in range(len(par['n_hidden']))]
+    par['h_init'] = 0.1*np.ones((par['n_hidden'], par['batch_train_size']), dtype=np.float32)
+    
 
 def initialize(dims, connection_prob):
     w = np.random.gamma(shape=0.25, scale=1.0, size=dims)

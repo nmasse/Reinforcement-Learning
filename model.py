@@ -10,6 +10,11 @@ import stimulus
 import matplotlib.pyplot as plt
 import os, sys, time
 
+try:
+    import gym
+except ModuleNotFoundError:
+    quit('Must use python3.5 due to gym not being installed in Anaconda.')
+
 # Ignore "use compiled version of TensorFlow" errors
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 
@@ -30,7 +35,7 @@ class AutoModel:
         self.hidden_history = []
 
         # Initializing internal states
-        self.rnn_state = par['h_init'][0]
+        self.rnn_state = par['h_init']
         self.pred_state = tf.zeros(par['observation_shape'])
         self.rnn_shape = self.rnn_state.shape
 
@@ -53,33 +58,32 @@ class AutoModel:
 
     def initialize_variables(self):
         c = 0.02
-        for lid in range(1):
-            with tf.variable_scope('layer'+str(lid)):
-                tf.get_variable('W_err1', shape=[par['n_hidden'][lid],par['n_dendrites'],par['n_input']],
-                                initializer=tf.random_uniform_initializer(0, c), trainable=True)
-                tf.get_variable('W_err2', shape=[par['n_hidden'][lid],par['n_dendrites'],par['n_input']],
-                                initializer=tf.random_uniform_initializer(0, c), trainable=True)
+        with tf.variable_scope('network'):
+            tf.get_variable('W_err1', shape=[par['n_hidden'],par['n_dendrites'],par['n_input']],
+                            initializer=tf.random_uniform_initializer(0, c), trainable=True)
+            tf.get_variable('W_err2', shape=[par['n_hidden'],par['n_dendrites'],par['n_input']],
+                            initializer=tf.random_uniform_initializer(0, c), trainable=True)
 
-                tf.get_variable('W_pred', shape=[par['n_input'],par['n_hidden'][lid]],
-                                initializer=tf.random_uniform_initializer(-c, c), trainable=True)
-                tf.get_variable('W_act', shape=[par['n_output'],par['n_hidden'][lid]],
-                                initializer=tf.random_uniform_initializer(-c, c), trainable=True)
-                tf.get_variable('b_pred', initializer = np.zeros((par['n_input'],1), dtype = np.float32), trainable=True)
-                tf.get_variable('b_act', initializer = np.zeros((par['n_output'],1), dtype = np.float32), trainable=True)
+            tf.get_variable('W_pred', shape=[par['n_input'],par['n_hidden']],
+                            initializer=tf.random_uniform_initializer(-c, c), trainable=True)
+            tf.get_variable('W_act', shape=[par['n_output'],par['n_hidden']],
+                            initializer=tf.random_uniform_initializer(-c, c), trainable=True)
+            tf.get_variable('b_pred', initializer = np.zeros((par['n_input'],1), dtype = np.float32), trainable=True)
+            tf.get_variable('b_act', initializer = np.zeros((par['n_output'],1), dtype = np.float32), trainable=True)
 
-                tf.get_variable('W_rnn', shape = [par['n_hidden'][lid], par['n_dendrites'], par['n_hidden'][lid]],
-                                initializer = tf.random_uniform_initializer(-c, c), trainable=True)
-                tf.get_variable('b_rnn', initializer = np.zeros((par['n_hidden'][lid],1), dtype = np.float32), trainable=True)
+            tf.get_variable('W_rnn', shape = [par['n_hidden'], par['n_dendrites'], par['n_hidden']],
+                            initializer = tf.random_uniform_initializer(-c, c), trainable=True)
+            tf.get_variable('b_rnn', initializer = np.zeros((par['n_hidden'],1), dtype = np.float32), trainable=True)
 
 
     def calc_error(self, target, prediction):
         return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
 
 
-    def layer(self, target, time, lid=0):
+    def layer(self, target):
 
         # Loading all weights and biases
-        with tf.variable_scope('layer'+str(lid), reuse=True):
+        with tf.variable_scope('network', reuse=True):
             W_err1 = tf.get_variable('W_err1')
             W_err2 = tf.get_variable('W_err2')
             W_pred = tf.get_variable('W_pred')
@@ -97,11 +101,8 @@ class AutoModel:
         tot_act = par['alpha_neuron']*(inp_act + rnn_act)         # Modulating
         act_eff = tf.reduce_sum(tot_act, axis=1) # Summing dendrites
 
-        # Placeholder for later development
-        rnn_next = 0.
-
         # Updating RNN state
-        self.rnn_state = tf.nn.relu(self.rnn_state*(1-par['alpha_neuron']) + act_eff + rnn_next  + b_rnn \
+        self.rnn_state = tf.nn.relu(self.rnn_state*(1-par['alpha_neuron']) + act_eff  + b_rnn \
             + tf.random_normal(self.rnn_shape, 0, par['noise_rnn'], dtype=tf.float32))
 
         # Prediction state
@@ -122,7 +123,7 @@ class AutoModel:
             stim = obs if t != 0 else tf.zeros(par['observation_shape'])
 
             # Calculate output
-            total_error, rnn_state, action_state = self.layer(stim, t)
+            total_error, rnn_state, action_state = self.layer(stim)
 
             # Placeholder operation
             if par['action_type'] == 'continuum':
