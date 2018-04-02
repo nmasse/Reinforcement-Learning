@@ -69,7 +69,7 @@ par = {
     'U_std'                 : 0.45,
 
     # Training specs
-    'batch_train_size'      : 256,      # The number of Gym environments being run simultaneously
+    'batch_train_size'      : 16,      # The number of Gym environments being run simultaneously
     'num_iterations'        : 200,
     'iters_between_outputs' : 20,
 
@@ -204,8 +204,8 @@ def update_dependencies():
     ### Setting up assorted intial weights, biases, and other values ###
     ####################################################################
 
-    par['h_init'] = 0.1*np.ones((par['n_hidden'], par['batch_train_size']), dtype=np.float32)
-    
+    par['h_init'] = 0.1*np.ones((par['batch_train_size'], par['n_hidden']), dtype=np.float32)
+
 
 def initialize(dims, connection_prob):
     w = np.random.gamma(shape=0.25, scale=1.0, size=dims)

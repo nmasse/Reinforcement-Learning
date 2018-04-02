@@ -36,7 +36,7 @@ class AutoModel:
 
         # Initializing internal states
         self.rnn_state = par['h_init']
-        self.pred_state = tf.zeros(par['observation_shape'])
+        self.pred_state = tf.zeros([par['batch_train_size'], *par['observation_shape']])
         self.rnn_shape = self.rnn_state.shape
 
         # Run and optimize
@@ -49,7 +49,7 @@ class AutoModel:
         if par['action_type'] == 'continuum':
             act_eff = action*(par['action_set'][1][0] - par['action_set'][0][0]) - par['action_set'][0][0]
         elif par['action_type'] == 'discrete':
-            act_eff = np.int32(np.argmax(action, axis=0))
+            act_eff = np.int32(np.argmax(action, axis=1))
 
         act_eff = np.reshape(act_eff, par['batch_train_size'])
         obs, rew, done = self.stim.run_step(act_eff)
@@ -57,59 +57,75 @@ class AutoModel:
 
 
     def initialize_variables(self):
+        rinit = tf.random_uniform_initializer
         c = 0.02
         with tf.variable_scope('network'):
-            tf.get_variable('W_err1', shape=[par['n_hidden'],par['n_dendrites'],par['n_input']],
-                            initializer=tf.random_uniform_initializer(0, c), trainable=True)
-            tf.get_variable('W_err2', shape=[par['n_hidden'],par['n_dendrites'],par['n_input']],
-                            initializer=tf.random_uniform_initializer(0, c), trainable=True)
 
-            tf.get_variable('W_pred', shape=[par['n_input'],par['n_hidden']],
-                            initializer=tf.random_uniform_initializer(-c, c), trainable=True)
-            tf.get_variable('W_act', shape=[par['n_output'],par['n_hidden']],
-                            initializer=tf.random_uniform_initializer(-c, c), trainable=True)
-            tf.get_variable('b_pred', initializer = np.zeros((par['n_input'],1), dtype = np.float32), trainable=True)
-            tf.get_variable('b_act', initializer = np.zeros((par['n_output'],1), dtype = np.float32), trainable=True)
-
+            # RNN Inputs
+            tf.get_variable('W_in', shape = [par['n_input'], par['n_dendrites'], par['n_hidden']],
+                            initializer = rinit(-c, c), trainable=True)
             tf.get_variable('W_rnn', shape = [par['n_hidden'], par['n_dendrites'], par['n_hidden']],
-                            initializer = tf.random_uniform_initializer(-c, c), trainable=True)
-            tf.get_variable('b_rnn', initializer = np.zeros((par['n_hidden'],1), dtype = np.float32), trainable=True)
+                            initializer = rinit(-c, c), trainable=True)
+            tf.get_variable('W_err1', shape=[par['n_input'],par['n_dendrites'],par['n_hidden']],
+                            initializer = rinit(0, c), trainable=True)
+            tf.get_variable('W_err2', shape=[par['n_input'],par['n_dendrites'],par['n_hidden']],
+                            initializer = rinit(0, c), trainable=True)
+            tf.get_variable('b_rnn', initializer = np.zeros((1,par['n_hidden']), dtype = np.float32), trainable=True)
+
+            # Action Inputs
+            tf.get_variable('W_act', shape=[par['n_hidden'],par['n_output']],
+                            initializer = rinit(-c, c), trainable=True)
+            tf.get_variable('b_act', initializer = np.zeros((1,par['n_output']), dtype = np.float32), trainable=True)
+
+            # Prediction Inputs
+            tf.get_variable('W_pred', shape = [par['n_hidden'],par['n_input']],
+                            initializer = rinit(-c, c), trainable=True)
+            tf.get_variable('W_ap', shape = [par['n_output'],par['n_input']],
+                            initializer =rinit(-c,c), trainable=True)
+            tf.get_variable('b_pred', initializer = np.zeros((1,par['n_input']), dtype = np.float32), trainable=True)
 
 
     def calc_error(self, target, prediction):
         return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
 
 
-    def layer(self, target):
+    def network(self, stim, target):
 
         # Loading all weights and biases
         with tf.variable_scope('network', reuse=True):
+            # RNN Inputs
+            W_in   = tf.get_variable('W_in')
+            W_rnn  = tf.get_variable('W_rnn')
             W_err1 = tf.get_variable('W_err1')
             W_err2 = tf.get_variable('W_err2')
-            W_pred = tf.get_variable('W_pred')
-            b_pred = tf.get_variable('b_pred')
+            b_rnn  = tf.get_variable('b_rnn')
+
+            # Action Inputs
             W_act  = tf.get_variable('W_act')
             b_act  = tf.get_variable('b_act')
-            W_rnn  = tf.get_variable('W_rnn')
-            b_rnn  = tf.get_variable('b_rnn')
+
+            # Prediction Inputs
+            W_pred = tf.get_variable('W_pred')
+            W_ap   = tf.get_variable('W_ap')
+            b_pred = tf.get_variable('b_pred')
 
         # Processing data for RNN step
         err_stim1, err_stim2 = self.calc_error(target, self.pred_state)
-
-        inp_act = tf.tensordot(W_err1, err_stim1, [[2],[0]]) + tf.tensordot(W_err2, err_stim2, [[2],[0]]) # Error activity
-        rnn_act = tf.tensordot(W_rnn, self.rnn_state, [[2],[0]])       # RNN activity
-        tot_act = par['alpha_neuron']*(inp_act + rnn_act)         # Modulating
+        inp_act = tf.tensordot(stim, W_in, [[1],[0]])
+        err_act = tf.tensordot(err_stim1, W_err1, [[1],[0]]) + tf.tensordot(err_stim2, W_err2, [[1],[0]]) # Error activity
+        rnn_act = tf.tensordot(self.rnn_state, W_rnn, [[1],[0]])       # RNN activity
+        tot_act = par['alpha_neuron']*(inp_act + err_act + rnn_act)    # Modulating
         act_eff = tf.reduce_sum(tot_act, axis=1) # Summing dendrites
 
         # Updating RNN state
         self.rnn_state = tf.nn.relu(self.rnn_state*(1-par['alpha_neuron']) + act_eff  + b_rnn \
             + tf.random_normal(self.rnn_shape, 0, par['noise_rnn'], dtype=tf.float32))
 
-        # Prediction state
-        self.pred_state = tf.nn.relu(tf.matmul(W_pred, self.rnn_state) + b_pred)
-
         # Action state
-        self.act_state = tf.nn.relu(tf.matmul(W_act, self.rnn_state) + b_act)
+        self.act_state = tf.nn.relu(tf.matmul(self.rnn_state, W_act) + b_act)
+
+        # Prediction state
+        self.pred_state = tf.nn.relu(tf.matmul(self.rnn_state, W_pred) + tf.matmul(self.act_state, W_ap)+ b_pred)
 
         return err_stim1 + err_stim2, self.rnn_state, self.act_state
 
@@ -120,23 +136,21 @@ class AutoModel:
         for t in range(par['num_steps']):
 
             # Call for a stimulus
-            stim = obs if t != 0 else tf.zeros(par['observation_shape'])
+            stim = target if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
+            target = obs if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
 
             # Calculate output
-            total_error, rnn_state, action_state = self.layer(stim)
+            total_error, rnn_state, action_state = self.network(stim, target)
 
             # Placeholder operation
             if par['action_type'] == 'continuum':
                 action_state = tf.nn.sigmoid(action_state)
 
+            # Step the environment
             obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32,tf.float32,tf.float32])
 
             # Explicitly set observation shape (not required, but recommended)
-            obs.set_shape([*par['observation_shape'],1])
-
-            # Expand error shape if necesary
-            if total_error.shape == (par['n_input'],):
-                total_error = tf.transpose(tf.stack([total_error]*par['batch_train_size'], axis=0))
+            obs.set_shape([par['batch_train_size'], *par['observation_shape']])
 
             # Log network state
             self.error_history.append(total_error)
