@@ -88,18 +88,23 @@ class AutoModel:
         c = 0.02
 
         for i in range(4):
+            
+            if i < 2:
+                filters = 32
+            else:
+                filters = 16
 
-            conv1 = tf.layers.conv2d(conv0, filters=32, kernel_size=1, \
+            conv1 = tf.layers.conv2d(conv0, filters=filters, kernel_size=1, \
                     strides=1, padding='valid', data_format='channels_last',
                     activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
                     bias_initializer=rinit(-c,c), trainable=True)
 
-            conv2 = tf.layers.conv2d(conv1, filters=32, kernel_size=1, \
+            conv2 = tf.layers.conv2d(conv1, filters=filters, kernel_size=1, \
                     strides=1, padding='valid', data_format='channels_last',
                     activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
                     bias_initializer=rinit(-c,c), trainable=True)
 
-            conv0 = tf.layers.max_pooling2d(conv2, (3,3), strides=3, \
+            conv0 = tf.layers.max_pooling2d(conv2, (2,2), strides=3, \
                     padding='valid', data_format='channels_last')
 
         return tf.reshape(conv0, [par['batch_train_size'], -1])
