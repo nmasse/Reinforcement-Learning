@@ -53,7 +53,7 @@ class AutoModel:
 
         act_eff = np.reshape(act_eff, par['batch_train_size'])
         obs, rew, done = self.stim.run_step(act_eff)
-        return [np.float32(obs.T), np.float32(rew), np.float32(done)]
+        return [np.float32(obs), np.float32(rew), np.float32(done)]
 
 
     def initialize_variables(self):
@@ -209,7 +209,7 @@ def main():
                             'Spike Loss: ' + str(np.round(spike_loss, 4))]
                 print(' | '.join(feedback))
 
-        print('Simulation complete.')
+        print('Simulation complete.\n')
 
 
 if __name__ == '__main__':

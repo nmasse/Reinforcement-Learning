@@ -74,7 +74,7 @@ par = {
     'iters_between_outputs' : 20,
 
     # Task specs
-    'environment_type'      : 'CartPole-v0', #'CartPole-v0', 'Pendulum-v0'
+    'environment_type'      : 'Pendulum-v0', #'CartPole-v0', 'Pendulum-v0'
     'num_steps'             : 20,
 
     # Save paths
