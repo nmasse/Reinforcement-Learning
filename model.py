@@ -45,17 +45,6 @@ class AutoModel:
         self.optimize()
 
 
-    def interact(self, action):
-        if par['action_type'] == 'continuum':
-            act_eff = action*(par['action_set'][1][0] - par['action_set'][0][0]) - par['action_set'][0][0]
-        elif par['action_type'] == 'discrete':
-            act_eff = np.int32(np.argmax(action, axis=1))
-
-        act_eff = np.reshape(act_eff, par['batch_train_size'])
-        obs, rew, done = self.stim.run_step(act_eff)
-        return [np.float32(obs), np.float32(rew), np.float32(done)]
-
-
     def initialize_variables(self):
         rinit = tf.random_uniform_initializer
         c = 0.02
@@ -85,6 +74,17 @@ class AutoModel:
             tf.get_variable('b_pred', initializer = np.zeros((1,par['n_input']), dtype = np.float32), trainable=True)
 
 
+    def interact(self, action):
+        if par['action_type'] == 'continuum':
+            act_eff = action*(par['action_set'][1][0] - par['action_set'][0][0]) - par['action_set'][0][0]
+        elif par['action_type'] == 'discrete':
+            act_eff = np.int32(np.argmax(action, axis=1))
+
+        act_eff = np.reshape(act_eff, par['batch_train_size'])
+        obs, rew, done = self.stim.run_step(act_eff)
+        return [np.float32(obs), np.float32(rew), np.float32(done)]
+
+
     def calc_error(self, target, prediction):
         return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
 
@@ -109,13 +109,16 @@ class AutoModel:
             W_ap   = tf.get_variable('W_ap')
             b_pred = tf.get_variable('b_pred')
 
-        # Processing data for RNN step
+        # Calculating error from previous time step
         err_stim1, err_stim2 = self.calc_error(target, self.pred_state)
-        inp_act = tf.tensordot(stim, W_in, [[1],[0]])
-        err_act = tf.tensordot(err_stim1, W_err1, [[1],[0]]) + tf.tensordot(err_stim2, W_err2, [[1],[0]]) # Error activity
+
+        # Processing data for RNN step
+        inp_act = tf.tensordot(stim, W_in, [[1],[0]])                  # Stimulus activity
+        err_act = tf.tensordot(err_stim1, W_err1, [[1],[0]]) \
+                + tf.tensordot(err_stim2, W_err2, [[1],[0]])           # Error activity
         rnn_act = tf.tensordot(self.rnn_state, W_rnn, [[1],[0]])       # RNN activity
-        tot_act = par['alpha_neuron']*(inp_act + err_act + rnn_act)    # Modulating
-        act_eff = tf.reduce_sum(tot_act, axis=1) # Summing dendrites
+        tot_act = par['alpha_neuron']*(inp_act + err_act + rnn_act)    # RNN modulation
+        act_eff = tf.reduce_sum(tot_act, axis=1)                       # Summing dendrites
 
         # Updating RNN state
         self.rnn_state = tf.nn.relu(self.rnn_state*(1-par['alpha_neuron']) + act_eff  + b_rnn \
@@ -125,7 +128,8 @@ class AutoModel:
         self.act_state = tf.nn.relu(tf.matmul(self.rnn_state, W_act) + b_act)
 
         # Prediction state
-        self.pred_state = tf.nn.relu(tf.matmul(self.rnn_state, W_pred) + tf.matmul(self.act_state, W_ap)+ b_pred)
+        self.pred_state = tf.nn.relu(tf.matmul(self.rnn_state, W_pred) \
+                        + tf.matmul(self.act_state, W_ap) + b_pred)
 
         return err_stim1 + err_stim2, self.rnn_state, self.act_state
 
