@@ -35,11 +35,16 @@ class AutoModel:
         self.hidden_history = []
 
         # Setting up network shape
-        self.n_input = np.product(par['observation_shape'])
+        if par['atari']:
+            placeholder = tf.zeros([par['batch_train_size'], *par['observation_shape']])
+            self.n_input = self.convolutional(placeholder).shape[1]
+        else:
+            self.n_input = np.product(par['observation_shape'])
 
         # Initializing internal states
-        self.rnn_state = par['h_init']
+        self.default_state = tf.zeros([par['batch_train_size'], self.n_input])
         self.pred_state = tf.zeros([par['batch_train_size'], self.n_input])
+        self.rnn_state = par['h_init']
         self.rnn_shape = self.rnn_state.shape
 
         # Run and optimize
@@ -75,6 +80,29 @@ class AutoModel:
             tf.get_variable('W_ap', shape = [par['n_output'],self.n_input],
                             initializer =rinit(-c,c), trainable=True)
             tf.get_variable('b_pred', initializer = np.zeros((1,self.n_input), dtype = np.float32), trainable=True)
+
+
+    def convolutional(self, conv0):
+
+        rinit = tf.random_uniform_initializer
+        c = 0.02
+
+        for i in range(4):
+
+            conv1 = tf.layers.conv2d(conv0, filters=32, kernel_size=1, \
+                    strides=1, padding='valid', data_format='channels_last',
+                    activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
+                    bias_initializer=rinit(-c,c), trainable=True)
+
+            conv2 = tf.layers.conv2d(conv1, filters=32, kernel_size=1, \
+                    strides=1, padding='valid', data_format='channels_last',
+                    activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
+                    bias_initializer=rinit(-c,c), trainable=True)
+
+            conv0 = tf.layers.max_pooling2d(conv2, (3,3), strides=3, \
+                    padding='valid', data_format='channels_last')
+
+        return tf.reshape(conv0, [par['batch_train_size'], -1])
 
 
     def interact(self, action):
@@ -144,11 +172,8 @@ class AutoModel:
         for t in range(par['num_steps']):
 
             # Call for a stimulus
-            stim = target if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
-            target = obs if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
-
-            stim = tf.reshape(stim, [par['batch_train_size'], -1])
-            target = tf.reshape(target, [par['batch_train_size'], -1])
+            stim = target if t != 0 else self.default_state
+            target = obs if t != 0 else self.default_state
 
             # Calculate output
             total_error, rnn_state, action_state = self.network(stim, target)
@@ -162,6 +187,10 @@ class AutoModel:
 
             # Explicitly set observation shape (not required, but recommended)
             obs.set_shape([par['batch_train_size'], *par['observation_shape']])
+
+            # Use convolutional network if desired
+            if par['atari']:
+                obs = self.convolutional(obs)
 
             # Log network state
             self.error_history.append(total_error)

@@ -42,10 +42,10 @@ par = {
     # Training specs
     'batch_train_size'      : 16,      # The number of Gym environments being run simultaneously
     'num_iterations'        : 200,
-    'iters_between_outputs' : 20,
+    'iters_between_outputs' : 1,
 
     # Task specs
-    'environment_type'      : 'Pong-v0', #'CartPole-v0', 'Pendulum-v0'
+    'environment_type'      : 'Asteroids-v0', #'CartPole-v0', 'Pendulum-v0'
     'num_steps'             : 20,
 
     # Save paths
@@ -119,6 +119,7 @@ def update_dependencies():
 
     # Check observation shape and action set
     par['observation_shape'] = np.shape(obs)
+    par['atari'] = (par['observation_shape'] == (210, 160, 3))
 
     # Determine action space setup
     if type(sample_env.action_space) == gym.spaces.Box:
