@@ -16,6 +16,7 @@ par = {
     # Setup parameters
     'save_dir'              : './savedir/',
     'load_previous_model'   : False,
+    'debug_mode'            : False,
 
     # Network shape and configuration
     'n_hidden'              : 120,
@@ -44,7 +45,7 @@ par = {
     'iters_between_outputs' : 20,
 
     # Task specs
-    'environment_type'      : 'Pendulum-v0', #'CartPole-v0', 'Pendulum-v0'
+    'environment_type'      : 'Pong-v0', #'CartPole-v0', 'Pendulum-v0'
     'num_steps'             : 20,
 
     # Save paths
@@ -137,6 +138,11 @@ def update_dependencies():
         # Translate to inputs and outputs
         par['n_output'] = par['action_shape']
         par['n_input'] = par['observation_shape'][0]
+
+    if par['debug_mode']:
+        print('Possible Actions:')
+        print(' | '.join(['{} : {}'.format(n, a) for n, a in \
+            zip(par['action_set'], sample_env.unwrapped.get_action_meanings())]))
 
     ###########################################################
     ### Setting up intial weights, biases, and other values ###

@@ -34,9 +34,12 @@ class AutoModel:
         self.error_history = []
         self.hidden_history = []
 
+        # Setting up network shape
+        self.n_input = np.product(par['observation_shape'])
+
         # Initializing internal states
         self.rnn_state = par['h_init']
-        self.pred_state = tf.zeros([par['batch_train_size'], *par['observation_shape']])
+        self.pred_state = tf.zeros([par['batch_train_size'], self.n_input])
         self.rnn_shape = self.rnn_state.shape
 
         # Run and optimize
@@ -51,13 +54,13 @@ class AutoModel:
         with tf.variable_scope('network'):
 
             # RNN Inputs
-            tf.get_variable('W_in', shape = [par['n_input'], par['n_dendrites'], par['n_hidden']],
+            tf.get_variable('W_in', shape = [self.n_input, par['n_dendrites'], par['n_hidden']],
                             initializer = rinit(-c, c), trainable=True)
             tf.get_variable('W_rnn', shape = [par['n_hidden'], par['n_dendrites'], par['n_hidden']],
                             initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('W_err1', shape=[par['n_input'],par['n_dendrites'],par['n_hidden']],
+            tf.get_variable('W_err1', shape=[self.n_input,par['n_dendrites'],par['n_hidden']],
                             initializer = rinit(0, c), trainable=True)
-            tf.get_variable('W_err2', shape=[par['n_input'],par['n_dendrites'],par['n_hidden']],
+            tf.get_variable('W_err2', shape=[self.n_input,par['n_dendrites'],par['n_hidden']],
                             initializer = rinit(0, c), trainable=True)
             tf.get_variable('b_rnn', initializer = np.zeros((1,par['n_hidden']), dtype = np.float32), trainable=True)
 
@@ -67,11 +70,11 @@ class AutoModel:
             tf.get_variable('b_act', initializer = np.zeros((1,par['n_output']), dtype = np.float32), trainable=True)
 
             # Prediction Inputs
-            tf.get_variable('W_pred', shape = [par['n_hidden'],par['n_input']],
+            tf.get_variable('W_pred', shape = [par['n_hidden'],self.n_input],
                             initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('W_ap', shape = [par['n_output'],par['n_input']],
+            tf.get_variable('W_ap', shape = [par['n_output'],self.n_input],
                             initializer =rinit(-c,c), trainable=True)
-            tf.get_variable('b_pred', initializer = np.zeros((1,par['n_input']), dtype = np.float32), trainable=True)
+            tf.get_variable('b_pred', initializer = np.zeros((1,self.n_input), dtype = np.float32), trainable=True)
 
 
     def interact(self, action):
@@ -93,6 +96,7 @@ class AutoModel:
 
         # Loading all weights and biases
         with tf.variable_scope('network', reuse=True):
+
             # RNN Inputs
             W_in   = tf.get_variable('W_in')
             W_rnn  = tf.get_variable('W_rnn')
@@ -142,6 +146,9 @@ class AutoModel:
             # Call for a stimulus
             stim = target if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
             target = obs if t != 0 else tf.zeros([par['batch_train_size'], *par['observation_shape']])
+
+            stim = tf.reshape(stim, [par['batch_train_size'], -1])
+            target = tf.reshape(target, [par['batch_train_size'], -1])
 
             # Calculate output
             total_error, rnn_state, action_state = self.network(stim, target)
