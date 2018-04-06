@@ -40,13 +40,15 @@ par = {
     'wiring_cost'           : 1e-3, #1e-6,
 
     # Training specs
-    'batch_train_size'      : 16,      # The number of Gym environments being run simultaneously
-    'num_iterations'        : 200,
+    'batch_train_size'      : 6,      # The number of Gym environments being run simultaneously
+    'num_iterations'        : 10,
     'iters_between_outputs' : 1,
+    'trials_to_animate'     : 2,
 
     # Task specs
-    'environment_type'      : 'Asteroids-v0', #'CartPole-v0', 'Pendulum-v0'
-    'num_steps'             : 20,
+    'environment_type'      : 'MsPacman-v0', #'CartPole-v0', 'Pendulum-v0'
+    'num_steps'             : 25,
+    'grayscale'             : 'average', # average, lightness, luminosity
 
     # Save paths
     'save_fn'               : 'model_results.pkl',
@@ -120,6 +122,10 @@ def update_dependencies():
     # Check observation shape and action set
     par['observation_shape'] = np.shape(obs)
     par['atari'] = (par['observation_shape'] == (210, 160, 3))
+    if par['atari']:
+        par['downsampled_shape'] = np.shape(downsampling(obs[np.newaxis,...])[0])
+    else:
+        par['downsampled_shape'] = par['observation_shape']
 
     # Determine action space setup
     if type(sample_env.action_space) == gym.spaces.Box:
@@ -150,6 +156,24 @@ def update_dependencies():
     ###########################################################
 
     par['h_init'] = 0.1*np.ones((par['batch_train_size'], par['n_hidden']), dtype=np.float32)
+
+
+def downsampling(obs):
+
+    # Convert to grayscale
+    if par['grayscale'] == 'average':
+        obs = np.mean(obs, axis=-1, keepdims=True)
+    elif par['grayscale'] == 'lightness':
+        obs = ((np.max(obs, axis=-1, keepdims=True)-np.min(obs, axis=-1, keepdims=True))/2)
+    elif par['grayscale'] == 'luminosity':
+        obs = ((0.21*obs[...,0] + 0.72*obs[...,1] + 0.07*obs[...,2])/3)[...,np.newaxis]
+    else:
+        raise Exception('Not a valid grayscale algorithm: {}'.format(par['grayscale']))
+
+    # Bilinear interpolation
+    obs = (obs[:,0::2,0::2] + obs[:,0::2,1::2] + obs[:,1::2,0::2] + obs[:,1::2,1::2])/4
+
+    return obs
 
 
 update_dependencies()

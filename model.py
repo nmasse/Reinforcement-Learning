@@ -8,7 +8,8 @@ import AdamOpt
 from parameters import *
 import stimulus
 import matplotlib.pyplot as plt
-import os, sys, time
+import os, sys, time, contextlib
+from PIL import Image
 
 try:
     import gym
@@ -26,7 +27,7 @@ class AutoModel:
         self.stim = stimulus.GymStim()
 
         # Setting up records
-        self.observation_history = []
+        self.screen_history = []
         self.prediction_history = []
         self.action_history = []
         self.reward_history = []
@@ -36,7 +37,7 @@ class AutoModel:
 
         # Setting up network shape
         if par['atari']:
-            placeholder = tf.zeros([par['batch_train_size'], *par['observation_shape']])
+            placeholder = tf.zeros([par['batch_train_size'], *par['downsampled_shape']])
             self.n_input = self.convolutional(placeholder).shape[1]
         else:
             self.n_input = np.product(par['observation_shape'])
@@ -51,6 +52,11 @@ class AutoModel:
         self.initialize_variables()
         self.run_model()
         self.optimize()
+
+        print('.', tf.stack(self.screen_history).shape)
+
+        with tf.device("/cpu:0"):
+            self.reset = tf.py_func(self.stim.ensemble_reset, [], [])
 
 
     def initialize_variables(self):
@@ -87,24 +93,21 @@ class AutoModel:
         rinit = tf.random_uniform_initializer
         c = 0.02
 
-        for i in range(4):
-            
-            if i < 2:
-                filters = 32
-            else:
-                filters = 16
+        for i in range(3):
 
-            conv1 = tf.layers.conv2d(conv0, filters=filters, kernel_size=1, \
+            filters = 32 if i < 2 else 16
+
+            conv1 = tf.layers.conv2d(conv0, filters=filters, kernel_size=2, \
                     strides=1, padding='valid', data_format='channels_last',
                     activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
                     bias_initializer=rinit(-c,c), trainable=True)
 
-            conv2 = tf.layers.conv2d(conv1, filters=filters, kernel_size=1, \
+            conv2 = tf.layers.conv2d(conv1, filters=filters, kernel_size=2, \
                     strides=1, padding='valid', data_format='channels_last',
                     activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
                     bias_initializer=rinit(-c,c), trainable=True)
 
-            conv0 = tf.layers.max_pooling2d(conv2, (2,2), strides=3, \
+            conv0 = tf.layers.max_pooling2d(conv2, (3,3), strides=3, \
                     padding='valid', data_format='channels_last')
 
         return tf.reshape(conv0, [par['batch_train_size'], -1])
@@ -117,9 +120,8 @@ class AutoModel:
             act_eff = np.int32(np.argmax(action, axis=1))
 
         act_eff = np.reshape(act_eff, par['batch_train_size'])
-        obs, rew, done = self.stim.run_step(act_eff)
-        return [np.float32(obs), np.float32(rew), np.float32(done)]
-
+        screen, obs, rew, done = self.stim.run_step(act_eff)
+        return [np.float32(screen), np.float32(obs), np.float32(rew), np.float32(done)]
 
     def calc_error(self, target, prediction):
         return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
@@ -188,25 +190,34 @@ class AutoModel:
                 action_state = tf.nn.sigmoid(action_state)
 
             # Step the environment
-            obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32,tf.float32,tf.float32])
+            with tf.device("/cpu:0"):
+                screen, obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32]*4)
 
             # Explicitly set observation shape (not required, but recommended)
-            obs.set_shape([par['batch_train_size'], *par['observation_shape']])
-
-            # Use convolutional network if desired
-            if par['atari']:
-                obs = self.convolutional(obs)
+            obs.set_shape([par['batch_train_size'], *par['downsampled_shape']])
+            screen.set_shape([par['trials_to_animate'], *par['observation_shape']])
 
             # Log network state
             self.error_history.append(total_error)
             self.hidden_history.append(rnn_state)
 
             # Log environment and action state
-            self.observation_history.append(obs)
+            self.screen_history.append(screen)
             self.prediction_history.append(self.pred_state)
             self.action_history.append(action_state)
             self.reward_history.append(rew)
             self.completion_history.append(done)
+
+            # The next two steps have been placed after the logging
+            # step for animation viewing after the model is run.
+
+            # Normalize signal strength
+            obs = obs/255
+
+            # Use convolutional network while transitioning to the next
+            # time step, if desired.
+            if par['atari']:
+                obs = self.convolutional(obs)
 
 
     def optimize(self):
@@ -224,7 +235,10 @@ class AutoModel:
         self.train_op = opt.apply_gradients(grads_and_vars)
 
 
-def main():
+def main(gpu_id):
+
+    # Select a GPU
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
 
     # Reset TensorFlow before running anything
     tf.reset_default_graph()
@@ -232,10 +246,9 @@ def main():
     # Start TensorFlow session
     with tf.Session() as sess:
         print('--> Initializing model...')
-        model = AutoModel()
-
-        # Initialize session variables
-        init = tf.global_variables_initializer()
+        with tf.device("/gpu:0"):
+            model = AutoModel()
+            init = tf.global_variables_initializer()
         sess.run(init)
         print('--> Model successfully initialized.\n')
 
@@ -243,10 +256,19 @@ def main():
         for i in range(par['num_iterations']):
 
             # Train network and pull network information
-            _, obs, pred, act, rew, comp, err, hid, perf_loss, spike_loss = sess.run([
-                    model.train_op, model.observation_history, model.prediction_history, \
+            _, screen, pred, act, rew, comp, err, hid, perf_loss, spike_loss = sess.run([
+                    model.train_op, model.screen_history, model.prediction_history, \
                     model.action_history, model.reward_history, model.completion_history,\
                     model.error_history, model.hidden_history, model.error_loss, model.spike_loss])
+            _ = sess.run([model.reset])
+
+            ##################  Current issue:
+            ##################    Within the model, the screen list has 1st dimension of 2
+            ##################    Here, the screen list has 1st dimension of 4
+            ##################    WHY IS THIS?!
+
+            print('-', np.array(screen).shape)
+            quit()
 
             # Display network performance
             if i%par['iters_between_outputs'] == 0 and i != 0:
@@ -254,11 +276,41 @@ def main():
                             'Spike Loss: ' + str(np.round(spike_loss, 4))]
                 print(' | '.join(feedback))
 
+                animation(i, screen)
+
         print('Simulation complete.\n')
+
+
+def animation(i, observations):
+
+    print(np.array(observations).shape)
+
+    #shape = [time steps x trials x *frame]
+    observations = np.array(observations, dtype=np.uint8)
+    print(observations.shape)
+    quit()
+
+    # Select a single trial
+    for b in range(par['trials_to_animate']):
+        obs = observations[:,b,...]
+
+        # Iterate over each frame
+        for t in range(par['num_steps']):
+
+            # Export Numpy array (of frame) to image
+            im = Image.fromarray(obs[t,...])
+            im.save('./anim/_trial{:04d}_frame{:04d}.png'.format(b, t))
+
+        # Use ffmpeg to collect the images into a short animation
+        os.system('ffmpeg -nostats -loglevel 0 -r 25 -i ./anim/_trial{0:04d}_frame%04d.png '.format(b) \
+        + '-vcodec libx264 -crf 25 -pix_fmt yuv420p ./anim/iter{1}-trial{0}.mp4'.format(b, i))
+
+        # Delete the frames generated to make way for the next batch
+        os.system('rm -f ./anim/_*.png')
 
 
 if __name__ == '__main__':
     try:
-        main()
+        main(sys.argv[1])
     except KeyboardInterrupt:
         quit('Quit via KeyboardInterrupt')

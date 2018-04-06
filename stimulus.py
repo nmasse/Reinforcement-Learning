@@ -10,6 +10,7 @@ class GymStim:
         # Set up a new environment
         self.ensemble, self.obs, self.rew, self.done, self.act_set = self.create_ensemble()
         self.ensemble_reset()
+        #print('New Ensemble Created')
 
     def create_ensemble(self):
 
@@ -46,7 +47,8 @@ class GymStim:
             else:
                 self.rew[i] = 0.
 
-        return self.obs, self.rew, self.done
+        return self.obs[par['trials_to_animate']:], downsampling(self.obs), self.rew, self.done
+
 
 """
 ###############################
