@@ -40,14 +40,14 @@ par = {
     'wiring_cost'           : 1e-3, #1e-6,
 
     # Training specs
-    'batch_train_size'      : 256,      # The number of Gym environments being run simultaneously
+    'batch_train_size'      : 50,      # The number of Gym environments being run simultaneously
     'num_iterations'        : 5,
     'iters_between_outputs' : 1,
     'trials_to_animate'     : 2,
 
     # Task specs
-    'environment_type'      : 'MsPacman-v0', #'CartPole-v0', 'Pendulum-v0'
-    'num_steps'             : 100,
+    'environment_type'      : 'Centipede-v0', #'CartPole-v0', 'Pendulum-v0'
+    'num_steps'             : 70,
     'grayscale'             : 'average', # average, lightness, luminosity
 
     # Save paths
@@ -121,7 +121,7 @@ def update_dependencies():
 
     # Check observation shape and action set
     par['observation_shape'] = np.shape(obs)
-    par['atari'] = (par['observation_shape'] == (210, 160, 3))
+    par['atari'] = (par['observation_shape'] == (210, 160, 3) or par['observation_shape'] == (250, 160, 3))
     if par['atari']:
         par['downsampled_shape'] = np.shape(downsampling(obs[np.newaxis,...])[0])
     else:

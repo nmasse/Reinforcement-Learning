@@ -273,12 +273,8 @@ def main(gpu_id):
 
 def animation(i, observations):
 
-    print(np.array(observations).shape)
-
     #shape = [time steps x trials x *frame]
     observations = np.array(observations, dtype=np.uint8)
-    print(observations.shape)
-    quit()
 
     # Select a single trial
     for b in range(par['trials_to_animate']):
