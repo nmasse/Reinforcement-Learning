@@ -53,8 +53,6 @@ class AutoModel:
         self.run_model()
         self.optimize()
 
-        print('.', tf.stack(self.screen_history).shape)
-
         with tf.device("/cpu:0"):
             self.reset = tf.py_func(self.stim.ensemble_reset, [], [])
 
@@ -261,14 +259,6 @@ def main(gpu_id):
                     model.action_history, model.reward_history, model.completion_history,\
                     model.error_history, model.hidden_history, model.error_loss, model.spike_loss])
             _ = sess.run([model.reset])
-
-            ##################  Current issue:
-            ##################    Within the model, the screen list has 1st dimension of 2
-            ##################    Here, the screen list has 1st dimension of 4
-            ##################    WHY IS THIS?!
-
-            print('-', np.array(screen).shape)
-            quit()
 
             # Display network performance
             if i%par['iters_between_outputs'] == 0 and i != 0:

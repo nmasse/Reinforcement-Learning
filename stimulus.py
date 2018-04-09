@@ -7,6 +7,8 @@ import gym
 class GymStim:
 
     def __init__(self):
+        ### THIS CLASS IS CREATED AND CALLED FROM WITHIN THE TENSORFLOW GRAPH ###
+
         # Set up a new environment
         self.ensemble, self.obs, self.rew, self.done, self.act_set = self.create_ensemble()
         self.ensemble_reset()
@@ -33,7 +35,6 @@ class GymStim:
 
 
     def run_step(self, acts):
-        ### THIS IS CALLED FROM WITHIN THE TENSORFLOW GRAPH ###
 
         for i, act in zip(range(par['batch_train_size']), acts):
             if not self.done[i]:
@@ -47,7 +48,7 @@ class GymStim:
             else:
                 self.rew[i] = 0.
 
-        return self.obs[par['trials_to_animate']:], downsampling(self.obs), self.rew, self.done
+        return self.obs[:par['trials_to_animate']], downsampling(self.obs), self.rew, self.done
 
 
 """

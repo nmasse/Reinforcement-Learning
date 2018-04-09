@@ -40,14 +40,14 @@ par = {
     'wiring_cost'           : 1e-3, #1e-6,
 
     # Training specs
-    'batch_train_size'      : 6,      # The number of Gym environments being run simultaneously
-    'num_iterations'        : 10,
+    'batch_train_size'      : 256,      # The number of Gym environments being run simultaneously
+    'num_iterations'        : 5,
     'iters_between_outputs' : 1,
     'trials_to_animate'     : 2,
 
     # Task specs
     'environment_type'      : 'MsPacman-v0', #'CartPole-v0', 'Pendulum-v0'
-    'num_steps'             : 25,
+    'num_steps'             : 100,
     'grayscale'             : 'average', # average, lightness, luminosity
 
     # Save paths
