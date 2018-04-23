@@ -1,77 +1,157 @@
 import numpy as np
-from parameters import *
-import contextlib
-import gym
+#from parameters import *
 
 
-class GymStim:
+class RoomStim:
 
     def __init__(self):
-        ### THIS CLASS IS CREATED AND CALLED FROM WITHIN THE TENSORFLOW GRAPH ###
+        self.num_doors = 2
+        self.num_rooms = 8
+        self.widths = np.arange(3,6)
+        self.heights = np.arange(3,6)
+        self.random_rooms = False
+        self.action_dict = {0:'up', 1:'down', 2:'left', 3:'right', 4:'door'}
 
-        # Set up a new environment
-        self.ensemble, self.obs, self.rew, self.done, self.act_set = self.create_ensemble()
-        self.ensemble_reset()
-        #print('New Ensemble Created')
+        self.rew_id  = 4
+        self.rew_loc = [1,1]
 
-    def create_ensemble(self):
-
-        ensemble  = np.empty(par['batch_train_size'], dtype=par['envtype'])
-        obs       = np.zeros([par['batch_train_size'], *par['observation_shape']])
-        done      = np.full([par['batch_train_size']], False)
-        rew       = np.zeros([par['batch_train_size']])
-        act_set   = par['action_set']
-
-        with contextlib.redirect_stdout(None):      # Suppress datatype warnings
-            for i in range(par['batch_train_size']):
-                ensemble[i] = gym.make(par['environment_type'])
-
-        return ensemble, obs, rew, done, act_set
+        self.new_environment(num_rooms=self.num_rooms)
+        self.reset_agent()
 
 
-    def ensemble_reset(self):
-        for i in range(par['batch_train_size']):
-            self.obs[i] = self.ensemble[i].reset()
+    def action(self, action_vector):
+
+        action = self.move_agent(action_vector)
+        print('-->', action, '\n')
+        self.get_state()
+        self.print_room()
+
+        return self.state, self.reward
 
 
-    def run_step(self, acts):
+    def move_agent(self, action_vector):
+        action_vector = np.exp(action_vector)/np.sum(np.exp(action_vector))
+        action = self.action_dict[np.random.choice(np.arange(len(action_vector)), p=action_vector)]
 
-        for i, act in zip(range(par['batch_train_size']), acts):
-            if not self.done[i]:
-
-                # This odd-looking conditional is necessary to
-                # prevent weird indexing bugs in the Gym
-                if par['action_type'] == 'continuum':
-                    self.obs[i], self.rew[i], self.done[i], _ = self.ensemble[i].step(np.array([act]))
-                elif par['action_type'] == 'discrete':
-                    self.obs[i], self.rew[i], self.done[i], _ = self.ensemble[i].step(act)
+        if action == 'up':
+            self.loc[0] = np.max([0, self.loc[0]-1])
+        elif action == 'down':
+            self.loc[0] = np.min([self.env_data['dims'][0,self.id]-1, self.loc[0]+1])
+        elif action == 'left':
+            self.loc[1] = np.max([0, self.loc[1]-1])
+        elif action == 'right':
+            self.loc[1] = np.min([self.env_data['dims'][1,self.id]-1, self.loc[1]+1])
+        elif action == 'door':
+            if self.loc == self.env_data['doors'][self.id,0].tolist():
+                self.id = self.env_data['graph'][self.id][0]
+                self.loc = np.int8(self.env_data['doors'][self.id,0]).tolist()
+            elif self.loc == self.env_data['doors'][self.id,1].tolist():
+                self.id = self.env_data['graph'][self.id][1]
+                self.loc = np.int8(self.env_data['doors'][self.id,1]).tolist()
             else:
-                self.rew[i] = 0.
+                pass    # There is no door
 
-        return self.obs[:par['trials_to_animate']], downsampling(self.obs), self.rew, self.done
+        return action
 
 
-"""
-###############################
-### Minimal Working Example ###
-###############################
+    def get_state(self):
 
-# Create stimulus
-stim = GymStim()
+        # Check for a door
+        if self.loc == self.env_data['doors'][self.id,0].tolist() or self.loc == self.env_data['doors'][self.id,1].tolist():
+            door = np.ones(1)
+        else:
+            door = np.zeros(1)
 
-# Run a random first step and retrieve the available actions
-obs, rew, done = stim.run_step()
-actions = stim.act_set
+        # Find walls in x and y axes
+        max_locs = self.env_data['dims'][:,self.id] - 1
+        w1 = max_locs - np.array(self.loc)
+        w2 = np.array(self.loc) - np.zeros(2, dtype=np.int8)
 
-# Now entering the main loop
-for t in range(par['num_steps']):
+        # Determine room color
+        color = np.array(mod8_base2(self.id), dtype=np.float32)
 
-    # The network generates a response (however it decides to)
-    network_resp = np.random.choice(actions, par['batch_train_size'])
+        # Build up state vector
+        self.state = np.concatenate([w1, w2, door, color])
 
-    # The response is fed into the simulation, and we get back new data
-    obs, rew, done = stim.run_step(network_resp)
-    print('\n' + '-'*10+'{}'.format(t)+'-'*10)
-    print(obs)  # New observation to give to the network
-    print(rew)  # Reward value
-"""
+        # Check for reward
+        if self.id == self.rew_id and self.loc == self.rew_loc:
+            self.reward = 1.
+        else:
+            self.reward = 0.
+
+
+    def make_rooms(self, num_rooms):
+        room_ids = np.arange(num_rooms)
+        room_widths = np.random.choice(self.widths, num_rooms)
+        room_heights = np.random.choice(self.heights, num_rooms)
+        door_locs = np.zeros([num_rooms, self.num_doors, 2])
+        for i in room_ids:
+            while door_locs[i,0,0] == door_locs[i,1,0] and door_locs[i,0,1] == door_locs[i,1,1]:
+                for j in range(self.num_doors):
+                    if j < self.num_doors//2:
+                        door_locs[i,j,:] = [np.random.choice([0, room_widths[i]-1]), np.random.choice(room_heights[i])]
+                    else:
+                        door_locs[i,j,:] = [np.random.choice(room_widths[i]), np.random.choice([0, room_heights[i]-1])]
+
+        room_dims = np.stack([room_widths, room_heights])
+        room_graph = self.graph_rooms(room_ids)
+
+        return room_ids, room_dims, door_locs, room_graph
+
+
+    def graph_rooms(self, room_ids):
+        room_graph = {}
+        if self.num_doors == 2:
+            for i in room_ids:
+                room_graph[i] = [(i-1)%len(room_ids), (i+1)%len(room_ids)]
+        else:
+            raise Exception("Can only use two doors, for now.")
+
+        return room_graph
+
+
+    def print_room(self):
+        locs = np.int8(self.env_data['doors'][self.id])
+        out = np.zeros(self.env_data['dims'][:,self.id])
+        for j in range(self.num_doors):
+            out[locs[j,0], locs[j,1]] = 1
+        out[self.loc[0], self.loc[1]] = 2
+        print(np.int8(out))
+        print('S:', self.state, '\n')
+
+
+    def new_environment(self, num_rooms):
+        ids, dims, doors, graph = self.make_rooms(num_rooms)
+
+        self.env_data = {
+            'ids'   : ids,
+            'dims'  : dims,
+            'doors' : doors,
+            'graph' : graph
+        }
+
+
+    def reset_agent(self):
+
+        self.id = np.random.choice(self.env_data['ids'])
+        self.loc = [np.random.choice(self.env_data['dims'][0,self.id]), np.random.choice(self.env_data['dims'][1,self.id])]
+
+
+def mod8_base2(n):
+    n = n%8
+    out = []
+    for i in range(3):
+        out.append(0 if n%2 == 0 else 1)
+        n = n // 2
+
+    return out[::-1]
+
+
+
+r = RoomStim()
+for i in range(5):
+    r.action(np.random.rand(5))
+
+r.reset_agent()
+for i in range(10):
+    r.action(np.random.rand(5))
