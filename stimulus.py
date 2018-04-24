@@ -1,4 +1,5 @@
 import numpy as np
+import graph as graph_setup
 #from parameters import *
 
 
@@ -81,7 +82,7 @@ class RoomStim:
 
 
     def make_rooms(self, num_rooms):
-        room_ids = np.arange(num_rooms)
+        room_ids, room_graph = self.graph_rooms()
         room_widths = np.random.choice(self.widths, num_rooms)
         room_heights = np.random.choice(self.heights, num_rooms)
         door_locs = np.zeros([num_rooms, self.num_doors, 2])
@@ -94,20 +95,14 @@ class RoomStim:
                         door_locs[i,j,:] = [np.random.choice(room_widths[i]), np.random.choice([0, room_heights[i]-1])]
 
         room_dims = np.stack([room_widths, room_heights])
-        room_graph = self.graph_rooms(room_ids)
 
         return room_ids, room_dims, door_locs, room_graph
 
 
-    def graph_rooms(self, room_ids):
-        room_graph = {}
-        if self.num_doors == 2:
-            for i in room_ids:
-                room_graph[i] = [(i-1)%len(room_ids), (i+1)%len(room_ids)]
-        else:
-            raise Exception("Can only use two doors, for now.")
+    def graph_rooms(self):
+        room_ids, graph = graph_setup.make_new_graph(self.num_rooms, self.num_doors)
 
-        return room_graph
+        return room_ids, graph
 
 
     def print_room(self):
