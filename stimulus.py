@@ -159,7 +159,7 @@ def mod8_base2(n):
     return out[::-1]
 
 
-
+"""
 r = RoomStim()
 for i in range(10):
     act = np.random.rand(5)
@@ -172,3 +172,4 @@ for i in range(10):
     act = np.random.rand(5)
     act = np.exp(act)/np.sum(np.exp(act))
     r.action(act)
+"""
