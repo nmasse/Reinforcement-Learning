@@ -16,6 +16,10 @@ class RoomStim:
         self.rew_id  = 4
         self.rew_loc = [1,1]
 
+        max_doors = self.widths[0]*self.heights[0] - (self.widths[0]-2)*(self.heights[0]-2) - 4
+        if self.num_doors > max_doors:
+            raise Exception('Too many doors for the smallest room.')
+
         self.new_environment(num_rooms=self.num_rooms)
         self.reset_agent()
 
@@ -85,13 +89,19 @@ class RoomStim:
         room_widths = np.random.choice(self.widths, num_rooms)
         room_heights = np.random.choice(self.heights, num_rooms)
         door_locs = np.zeros([num_rooms, self.num_doors, 2])
+
         for i in room_ids:
-            while door_locs[i,0,0] == door_locs[i,1,0] and door_locs[i,0,1] == door_locs[i,1,1]:
-                for j in range(self.num_doors):
-                    if j < self.num_doors//2:
-                        door_locs[i,j,:] = [np.random.choice([0, room_widths[i]-1]), np.random.choice(room_heights[i])]
-                    else:
-                        door_locs[i,j,:] = [np.random.choice(room_widths[i]), np.random.choice([0, room_heights[i]-1])]
+            w = room_widths[i]
+            h = room_heights[i]
+
+            locs1 = np.stack([np.arange(1,w-1), np.full(w-2,0)]).T.tolist()
+            locs2 = np.stack([np.arange(1,w-1), np.full(w-2,h-1)]).T.tolist()
+            locs3 = np.stack([np.full(h-2,0), np.arange(1,h-1)]).T.tolist()
+            locs4 = np.stack([np.full(h-2,w-1), np.arange(1,h-1)]).T.tolist()
+            locs = locs1 + locs2 + locs3 + locs4
+
+            loc_set = np.random.choice(len(locs), self.num_doors, replace=False)
+            door_locs[i,:,:] = [locs[loc_set[n]] for n in range(self.num_doors)]
 
         room_dims = np.stack([room_widths, room_heights])
 
@@ -150,10 +160,15 @@ def mod8_base2(n):
 
 
 
-#r = RoomStim()
-#for i in range(5):
-#    r.action(np.random.rand(5))
-#
-#r.reset_agent()
-#for i in range(10):
-#    r.action(np.random.rand(5))
+r = RoomStim()
+for i in range(10):
+    act = np.random.rand(5)
+    act = np.exp(act)/np.sum(np.exp(act))
+    r.action(act)
+
+print('-'*70)
+r.reset_agent()
+for i in range(10):
+    act = np.random.rand(5)
+    act = np.exp(act)/np.sum(np.exp(act))
+    r.action(act)
