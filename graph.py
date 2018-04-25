@@ -44,7 +44,8 @@ def make_new_graph(num_rooms, num_doors):
             i, j = np.random.choice(room_ids, 2, replace=False)
             connected = j in graph[i] or i in graph[j]
             space     = connections[i] > 0 and connections[j] > 0
-            if not connected and space:
+            symmetric = connections[i] == connections[j]
+            if not connected and space and symmetric:
                 graph[i] += [j]
                 graph[j] += [i]
                 connections[i] -= 1
@@ -53,5 +54,3 @@ def make_new_graph(num_rooms, num_doors):
         pathed = check_pathing(graph, room_ids)
 
     return room_ids, graph
-
-make_new_graph(12, 3)

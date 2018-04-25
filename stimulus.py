@@ -7,7 +7,7 @@ class RoomStim:
 
     def __init__(self):
         self.num_doors = 2
-        self.num_rooms = 8
+        self.num_rooms = 4
         self.widths = np.arange(3,6)
         self.heights = np.arange(3,6)
         self.random_rooms = False
@@ -23,7 +23,7 @@ class RoomStim:
     def action(self, action_vector):
 
         action = self.move_agent(action_vector)
-        print('-->', action, '\n')
+        print('-->', action, 'to {} in room {}\n'.format(self.loc, self.id))
         self.get_state()
         self.print_room()
 
@@ -31,7 +31,7 @@ class RoomStim:
 
 
     def move_agent(self, action_vector):
-        action_vector = np.exp(action_vector)/np.sum(np.exp(action_vector))
+        #action_vector = np.exp(action_vector)/np.sum(np.exp(action_vector))
         action = self.action_dict[np.random.choice(np.arange(len(action_vector)), p=action_vector)]
 
         if action == 'up':
@@ -43,14 +43,13 @@ class RoomStim:
         elif action == 'right':
             self.loc[1] = np.min([self.env_data['dims'][1,self.id]-1, self.loc[1]+1])
         elif action == 'door':
-            if self.loc == self.env_data['doors'][self.id,0].tolist():
-                self.id = self.env_data['graph'][self.id][0]
-                self.loc = np.int8(self.env_data['doors'][self.id,0]).tolist()
-            elif self.loc == self.env_data['doors'][self.id,1].tolist():
-                self.id = self.env_data['graph'][self.id][1]
-                self.loc = np.int8(self.env_data['doors'][self.id,1]).tolist()
+            if self.loc in self.env_data['doors'][self.id,:].tolist():
+                print('-'*40)
+                ind = self.env_data['doors'][self.id,:].tolist().index(self.loc)
+                self.id = self.env_data['graph'][self.id][ind]
+                self.loc = np.int8(self.env_data['doors'][self.id,ind]).tolist()
             else:
-                pass    # There is no door
+                pass    # There is no door here
 
         return action
 
@@ -108,8 +107,16 @@ class RoomStim:
     def print_room(self):
         locs = np.int8(self.env_data['doors'][self.id])
         out = np.zeros(self.env_data['dims'][:,self.id])
+
+        # Show doors
         for j in range(self.num_doors):
             out[locs[j,0], locs[j,1]] = 1
+
+        # Show reward
+        if self.id == self.rew_id:
+            out[self.rew_loc[0], self.rew_loc[1]] = 3
+
+        # Show agent
         out[self.loc[0], self.loc[1]] = 2
         print(np.int8(out))
         print('S:', self.state, '\n')
@@ -143,10 +150,10 @@ def mod8_base2(n):
 
 
 
-r = RoomStim()
-for i in range(5):
-    r.action(np.random.rand(5))
-
-r.reset_agent()
-for i in range(10):
-    r.action(np.random.rand(5))
+#r = RoomStim()
+#for i in range(5):
+#    r.action(np.random.rand(5))
+#
+#r.reset_agent()
+#for i in range(10):
+#    r.action(np.random.rand(5))
