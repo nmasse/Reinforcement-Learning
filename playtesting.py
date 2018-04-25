@@ -19,4 +19,7 @@ while True:
         action = [0,0,0,0,1]
     elif act == 'q':
         quit()
-    env.action(np.array(action))
+
+    state, reward = env.action(np.array(action))
+    if reward > 0:
+        print('Reward!')
