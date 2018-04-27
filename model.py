@@ -88,7 +88,6 @@ def main(gpu_id = 0):
     state = tf.placeholder(tf.float32, shape = [par['state_size'], 1], name='state')  # input data
     state_list = tf.placeholder(tf.float32, shape = [par['state_size'], par['batch_size']], name='state_list')
     target_Q_list = tf.placeholder(tf.float32, shape = [par['num_actions'], par['batch_size']], name='target_Q_list')
-    par['epsilon'] = 0.1
 
     # Start TensorFlow session
     with tf.Session() as sess:
@@ -106,13 +105,6 @@ def main(gpu_id = 0):
             target_Q_hist = []
             counter_hist = []
 
-            if j>50:
-                par['epsilon'] = 0.1
-            elif j>100:
-                par['epsilon'] = 0.1
-            elif j>4000:
-                par['epsilon'] = 0.0001
-
             while len(state_hist) < 1*par['batch_size']:
 
                 stim.reset_agent()
@@ -125,7 +117,7 @@ def main(gpu_id = 0):
                     Q = sess.run(model.output, feed_dict = {state: np.reshape(current_state, (par['state_size'], 1))})
                     repeat = True
                     while repeat:
-                        if np.random.rand()< par['epsilon']:
+                        if np.random.rand() < par['epsilon']:
                             action_index = np.random.choice(np.arange(5))
                         else:
                             action_index = np.argmax(Q)

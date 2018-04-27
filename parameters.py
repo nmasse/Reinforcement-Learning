@@ -24,7 +24,7 @@ par = {
 
     # Reinforcement learning parameters
     'gamma'                 : 0.75,
-    'epsilon'               : 0.5,
+    'epsilon'               : 0.1,
 
     # Cost parameters
     'spike_cost'            : 0.,
