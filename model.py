@@ -4,236 +4,78 @@ Nicolas Masse and Gregory Grant, 2018
 
 import tensorflow as tf
 import numpy as np
-import AdamOpt
-from parameters import *
 import stimulus
+import os, sys
 import matplotlib.pyplot as plt
-import os, sys, time, contextlib
-from PIL import Image
+from itertools import product
 
-try:
-    import gym
-except ModuleNotFoundError:
-    quit('Must use python3.5 due to gym not being installed in Anaconda.')
+
+state_size = 8
+num_actions = 5
+batch_size = 1024
+num_epochs = 10001
+num_iterations = 10
+gamma = 0.75
+#T = 10.
+epsilon = 0.5
 
 # Ignore "use compiled version of TensorFlow" errors
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 
-class AutoModel:
+class Model():
 
-    def __init__(self):
+    def __init__(self, state, state_list, target_Q_list):
 
-        # Opening the gym environment
-        self.stim = stimulus.GymStim()
+        self.layer_dims = [state_size, 200, 200, num_actions]
+        self.learning_rate = 0.0005
+        self.state = state
 
-        # Setting up records
-        self.screen_history = []
-        self.prediction_history = []
-        self.action_history = []
-        self.reward_history = []
-        self.completion_history = []
-        self.error_history = []
-        self.hidden_history = []
+        self.state_list = state_list
+        self.target_Q_list = target_Q_list
 
-        # Setting up network shape
-        if par['atari']:
-            placeholder = tf.zeros([par['batch_train_size'], *par['downsampled_shape']])
-            self.n_input = self.convolutional(placeholder).shape[1]
-        else:
-            self.n_input = np.product(par['observation_shape'])
+        self.run()
 
-        # Initializing internal states
-        self.default_state = tf.zeros([par['batch_train_size'], self.n_input])
-        self.pred_state = tf.zeros([par['batch_train_size'], self.n_input])
-        self.rnn_state = par['h_init']
-        self.rnn_shape = self.rnn_state.shape
-
-        # Run and optimize
-        self.initialize_variables()
-        self.run_model()
         self.optimize()
 
-        with tf.device("/cpu:0"):
-            self.reset = tf.py_func(self.stim.ensemble_reset, [], [])
+    def run(self):
 
-
-    def initialize_variables(self):
-        rinit = tf.random_uniform_initializer
         c = 0.02
-        with tf.variable_scope('network'):
+        x = self.state
+        for n in range(len(self.layer_dims)-1):
+            with tf.variable_scope('feedforward'+str(n)):
+                W = tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.layer_dims[n+1],self.layer_dims[n]])))
+                b = tf.get_variable('b', initializer = np.zeros((self.layer_dims[n+1], 1), dtype = np.float32))
+                if n <  len(self.layer_dims)-2:
+                    x = tf.nn.relu(tf.matmul(W, x) + b)
+                else:
+                    x = tf.matmul(W, x) + b
 
-            # RNN Inputs
-            tf.get_variable('W_in', shape = [self.n_input, par['n_dendrites'], par['n_hidden']],
-                            initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('W_rnn', shape = [par['n_hidden'], par['n_dendrites'], par['n_hidden']],
-                            initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('W_err1', shape=[self.n_input,par['n_dendrites'],par['n_hidden']],
-                            initializer = rinit(0, c), trainable=True)
-            tf.get_variable('W_err2', shape=[self.n_input,par['n_dendrites'],par['n_hidden']],
-                            initializer = rinit(0, c), trainable=True)
-            tf.get_variable('b_rnn', initializer = np.zeros((1,par['n_hidden']), dtype = np.float32), trainable=True)
-
-            # Action Inputs
-            tf.get_variable('W_act', shape=[par['n_hidden'],par['n_output']],
-                            initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('b_act', initializer = np.zeros((1,par['n_output']), dtype = np.float32), trainable=True)
-
-            # Prediction Inputs
-            tf.get_variable('W_pred', shape = [par['n_hidden'],self.n_input],
-                            initializer = rinit(-c, c), trainable=True)
-            tf.get_variable('W_ap', shape = [par['n_output'],self.n_input],
-                            initializer =rinit(-c,c), trainable=True)
-            tf.get_variable('b_pred', initializer = np.zeros((1,self.n_input), dtype = np.float32), trainable=True)
-
-
-    def convolutional(self, conv0):
-
-        rinit = tf.random_uniform_initializer
-        c = 0.02
-
-        for i in range(3):
-
-            filters = 32 if i < 2 else 16
-
-            conv1 = tf.layers.conv2d(conv0, filters=filters, kernel_size=2, \
-                    strides=1, padding='valid', data_format='channels_last',
-                    activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
-                    bias_initializer=rinit(-c,c), trainable=True)
-
-            conv2 = tf.layers.conv2d(conv1, filters=filters, kernel_size=2, \
-                    strides=1, padding='valid', data_format='channels_last',
-                    activation=tf.nn.relu, kernel_initializer=rinit(-c,c),
-                    bias_initializer=rinit(-c,c), trainable=True)
-
-            conv0 = tf.layers.max_pooling2d(conv2, (3,3), strides=3, \
-                    padding='valid', data_format='channels_last')
-
-        return tf.reshape(conv0, [par['batch_train_size'], -1])
-
-
-    def interact(self, action):
-        if par['action_type'] == 'continuum':
-            act_eff = action*(par['action_set'][1][0] - par['action_set'][0][0]) - par['action_set'][0][0]
-        elif par['action_type'] == 'discrete':
-            act_eff = np.int32(np.argmax(action, axis=1))
-
-        act_eff = np.reshape(act_eff, par['batch_train_size'])
-        screen, obs, rew, done = self.stim.run_step(act_eff)
-        return [np.float32(screen), np.float32(obs), np.float32(rew), np.float32(done)]
-
-    def calc_error(self, target, prediction):
-        return tf.nn.relu(prediction - target), tf.nn.relu(target - prediction)
-
-
-    def network(self, stim, target):
-
-        # Loading all weights and biases
-        with tf.variable_scope('network', reuse=True):
-
-            # RNN Inputs
-            W_in   = tf.get_variable('W_in')
-            W_rnn  = tf.get_variable('W_rnn')
-            W_err1 = tf.get_variable('W_err1')
-            W_err2 = tf.get_variable('W_err2')
-            b_rnn  = tf.get_variable('b_rnn')
-
-            # Action Inputs
-            W_act  = tf.get_variable('W_act')
-            b_act  = tf.get_variable('b_act')
-
-            # Prediction Inputs
-            W_pred = tf.get_variable('W_pred')
-            W_ap   = tf.get_variable('W_ap')
-            b_pred = tf.get_variable('b_pred')
-
-        # Calculating error from previous time step
-        err_stim1, err_stim2 = self.calc_error(target, self.pred_state)
-
-        # Processing data for RNN step
-        inp_act = tf.tensordot(stim, W_in, [[1],[0]])                  # Stimulus activity
-        err_act = tf.tensordot(err_stim1, W_err1, [[1],[0]]) \
-                + tf.tensordot(err_stim2, W_err2, [[1],[0]])           # Error activity
-        rnn_act = tf.tensordot(self.rnn_state, W_rnn, [[1],[0]])       # RNN activity
-        tot_act = par['alpha_neuron']*(inp_act + err_act + rnn_act)    # RNN modulation
-        act_eff = tf.reduce_sum(tot_act, axis=1)                       # Summing dendrites
-
-        # Updating RNN state
-        self.rnn_state = tf.nn.relu(self.rnn_state*(1-par['alpha_neuron']) + act_eff  + b_rnn \
-            + tf.random_normal(self.rnn_shape, 0, par['noise_rnn'], dtype=tf.float32))
-
-        # Action state
-        self.act_state = tf.nn.relu(tf.matmul(self.rnn_state, W_act) + b_act)
-
-        # Prediction state
-        self.pred_state = tf.nn.relu(tf.matmul(self.rnn_state, W_pred) \
-                        + tf.matmul(self.act_state, W_ap) + b_pred)
-
-        return err_stim1 + err_stim2, self.rnn_state, self.act_state
-
-
-    def run_model(self):
-
-        # Iterate through time via the input data
-        for t in range(par['num_steps']):
-
-            # Call for a stimulus
-            stim = target if t != 0 else self.default_state
-            target = obs if t != 0 else self.default_state
-
-            # Calculate output
-            total_error, rnn_state, action_state = self.network(stim, target)
-
-            # Placeholder operation
-            if par['action_type'] == 'continuum':
-                action_state = tf.nn.sigmoid(action_state)
-
-            # Step the environment
-            with tf.device("/cpu:0"):
-                screen, obs, rew, done = tf.py_func(self.interact, [action_state], [tf.float32]*4)
-
-            # Explicitly set observation shape (not required, but recommended)
-            obs.set_shape([par['batch_train_size'], *par['downsampled_shape']])
-            screen.set_shape([par['trials_to_animate'], *par['observation_shape']])
-
-            # Log network state
-            self.error_history.append(total_error)
-            self.hidden_history.append(rnn_state)
-
-            # Log environment and action state
-            self.screen_history.append(screen)
-            self.prediction_history.append(self.pred_state)
-            self.action_history.append(action_state)
-            self.reward_history.append(rew)
-            self.completion_history.append(done)
-
-            # The next two steps have been placed after the logging
-            # step for animation viewing after the model is run.
-
-            # Normalize signal strength
-            obs = obs/255
-
-            # Use convolutional network while transitioning to the next
-            # time step, if desired.
-            if par['atari']:
-                obs = self.convolutional(obs)
+        self.output = x
 
 
     def optimize(self):
 
         # Use all trainable variables
-        opt = tf.train.AdamOptimizer(learning_rate=par['learning_rate'])
-
-        # Calculate losses
-        self.error_loss = tf.reduce_mean(tf.square(self.error_history))
-        self.spike_loss = par['spike_cost']*tf.reduce_mean(tf.abs(self.hidden_history))
-
-        # Build train operation
-        self.loss = self.error_loss # + self.spike_loss
-        grads_and_vars = opt.compute_gradients(self.loss)
-        self.train_op = opt.apply_gradients(grads_and_vars)
+        opt = tf.train.AdamOptimizer(learning_rate = self.learning_rate)
 
 
-def main(gpu_id):
+        x = self.state_list
+        for n in range(len(self.layer_dims)-1):
+            with tf.variable_scope('feedforward'+str(n), reuse = True):
+                W = tf.get_variable('W')
+                b = tf.get_variable('b')
+                if n <  len(self.layer_dims)-2:
+                    x = tf.nn.relu(tf.matmul(W, x) + b)
+                else:
+                    x = tf.matmul(W, x) + b
+
+        print('x',x)
+        print('self.target_Q_list',self.target_Q_list)
+        loss = tf.reduce_mean(tf.square(x - self.target_Q_list))
+        self.train_op = opt.minimize(loss)
+
+
+def main(gpu_id = 0):
 
     # Select a GPU
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
@@ -241,58 +83,137 @@ def main(gpu_id):
     # Reset TensorFlow before running anything
     tf.reset_default_graph()
 
+    stim = stimulus.RoomStim()
+
+
+    state = tf.placeholder(tf.float32, shape = [state_size, 1], name='state')  # input data
+    state_list = tf.placeholder(tf.float32, shape = [state_size, batch_size], name='state_list')
+    target_Q_list = tf.placeholder(tf.float32, shape = [num_actions, batch_size], name='target_Q_list')
+    epsilon = 0.1
+
     # Start TensorFlow session
     with tf.Session() as sess:
         print('--> Initializing model...')
         with tf.device("/gpu:0"):
-            model = AutoModel()
-            init = tf.global_variables_initializer()
+            model = Model(state, state_list, target_Q_list)
+        init = tf.global_variables_initializer()
         sess.run(init)
         print('--> Model successfully initialized.\n')
 
         # Training Loop
-        for i in range(par['num_iterations']):
+        for j in range(num_epochs):
 
-            # Train network and pull network information
-            _, screen, pred, act, rew, comp, err, hid, perf_loss, spike_loss = sess.run([
-                    model.train_op, model.screen_history, model.prediction_history, \
-                    model.action_history, model.reward_history, model.completion_history,\
-                    model.error_history, model.hidden_history, model.error_loss, model.spike_loss])
-            _ = sess.run([model.reset])
+            state_hist = []
+            target_Q_hist = []
+            counter_hist = []
 
-            # Display network performance
-            if i%par['iters_between_outputs'] == 0 and i != 0:
-                feedback = ['Iter. ' + str(i), 'Perf. Loss: ' + str(np.round(perf_loss, 4)),
-                            'Spike Loss: ' + str(np.round(spike_loss, 4))]
-                print(' | '.join(feedback))
+            if j>50:
+                epsilon = 0.1
+            elif j>100:
+                epsilon = 0.1
+            elif j>4000:
+                epsilon = 0.0001
 
-                animation(i, screen)
+            while len(state_hist) < 1*batch_size:
 
-        print('Simulation complete.\n')
+                stim.reset_agent()
+                counter = 0
+                reward = 0
+
+                while counter < 99 and reward == 0:
+
+                    current_state = stim.return_state()
+                    Q = sess.run(model.output, feed_dict = {state: np.reshape(current_state, (state_size, 1))})
+                    #Q_softmax = np.exp(T*Q)/np.sum(np.exp(T*Q))
+                    repeat = True
+                    while repeat:
+                        if np.random.rand()< epsilon:
+                            action_index = np.random.choice(np.arange(5))
+                        else:
+                            action_index = np.argmax(Q)
+                        new_state, reward = stim.action(action_index)
+                        if not all(new_state == current_state):
+                            repeat = False
+                        #print(action_index, Q)
+                    #action_index = np.random.choice(np.arange(num_actions), p = np.squeeze(Q_softmax))
+
+                    """
+                        if not all(new_state == current_state):
+                            repeat = False
+                    """
+                    Q_new = sess.run(model.output, feed_dict = {state: np.reshape(new_state, (state_size, 1))})
+                    target_Q = np.squeeze(Q)
+                    if reward > 0:
+                        # terminal state
+                        target_Q[action_index] = reward
+
+                    else:
+                        target_Q[action_index] = gamma*np.max(Q_new)
+
+                    state_hist.append(current_state)
+                    target_Q_hist.append(target_Q)
+                    #print(current_state, action_index, new_state)
 
 
-def animation(i, observations):
+                    counter += 1
+                #print(counter, reward, )
+                counter_hist.append(counter)
 
-    #shape = [time steps x trials x *frame]
-    observations = np.array(observations, dtype=np.uint8)
+            # randomly sample from state_list and target_Q_list
+            ind = np.uint16(np.random.permutation(len(state_hist)))
+            ind = ind[:batch_size]
+            #print(type(ind))
+            #print(len(state_hist))
+            state_hist = state_hist[-1024:]
+            target_Q_hist = target_Q_hist[-1024:]
+            #print(len(target_Q_hist), target_Q_hist[0].shape)
+            state_hist = np.stack(state_hist, axis = 1)
+            target_Q_hist = np.stack(target_Q_hist, axis = 1)
 
-    # Select a single trial
-    for b in range(par['trials_to_animate']):
-        obs = observations[:,b,...]
+            #print(state_hist.shape, target_Q_hist.shape)
 
-        # Iterate over each frame
-        for t in range(par['num_steps']):
+            _ = sess.run(model.train_op, feed_dict = {state_list: state_hist, target_Q_list: target_Q_hist})
+            print('Epoch ', j, ' - mean counter ', np.mean(np.stack(counter_hist)) , ' mean Q ', np.mean(target_Q_hist))
 
-            # Export Numpy array (of frame) to image
-            im = Image.fromarray(obs[t,...])
-            im.save('./anim/_trial{:04d}_frame{:04d}.png'.format(b, t))
 
-        # Use ffmpeg to collect the images into a short animation
-        os.system('ffmpeg -nostats -loglevel 0 -r 25 -i ./anim/_trial{0:04d}_frame%04d.png '.format(b) \
-        + '-vcodec libx264 -crf 25 -pix_fmt yuv420p ./anim/iter{1}-trial{0}.mp4'.format(b, i))
+            if j%50 == 0:
+                print('Outputting Q matrix')
+                print('Reward Location: Room {} at position {}'.format(stim.rew_id, stim.rew_loc))
+                num_rooms = stim.num_rooms
+                room_ids = stim.env_data['ids']
+                for room_id in room_ids:
+                    room_dims = stim.env_data['dims'][:,room_id]
+                    locs = [[a,b] for a, b in product(np.arange(room_dims[0]), np.arange(room_dims[1]))]
+                    actions = np.arange(5)
 
-        # Delete the frames generated to make way for the next batch
-        os.system('rm -f ./anim/_*.png')
+                    fig, ax = plt.subplots(3,2,figsize=(8,10))
+                    for a, ind in zip(actions, [[0,0],[0,1],[1,0],[1,1],[2,0]]):
+
+                        Q_output = np.zeros([room_dims[0], room_dims[1]])
+                        for l in locs:
+                            stim.set_agent(inp_id=room_id, loc=l)
+                            current_state = stim.return_state()
+                            Q = sess.run(model.output, feed_dict = {state: np.reshape(current_state, (state_size, 1))})
+                            Q_output[l[0],l[1]] = Q[a]
+
+                        im = ax[ind[0], ind[1]].imshow(Q_output, cmap='Purples', clim=[np.min(Q_output), np.max(Q_output)])
+                        ax[ind[0], ind[1]].set_title('Action "{}"'.format(stim.action_dict[a]))
+                        plt.colorbar(im, ax=ax[ind[0], ind[1]])
+
+                    output = np.zeros([room_dims[0], room_dims[1], 3])
+                    door_locs = np.int8(stim.env_data['doors'][room_id])
+                    for j in range(len(door_locs)):
+                        output[door_locs[j,0], door_locs[j,1],2] = 0.75
+
+                    if room_id == stim.rew_id:
+                        output[stim.rew_loc[0],stim.rew_loc[1],0] = 0.75
+
+                    ax[2,1].set_title('Room Map (Door=Blue, Rew=Red)')
+                    ax[2,1].imshow(output)
+                    plt.suptitle('Room {}, Doors at {}'.format(room_id, str(stim.env_data['doors'][room_id])))
+                    plt.show()
+
+
 
 
 if __name__ == '__main__':
