@@ -8,8 +8,8 @@ class RoomStim:
     def __init__(self):
         self.num_doors = 1
         self.num_rooms = 2
-        self.widths = np.arange(4,5)
-        self.heights = np.arange(4,5)
+        self.widths = np.arange(6,8)
+        self.heights = np.arange(6,8)
         self.random_rooms = False
         self.action_dict = {0:'up', 1:'down', 2:'left', 3:'right', 4:'door'}
 

@@ -178,28 +178,30 @@ def main(gpu_id = 0):
 
             if j%50 == 0:
                 print('Outputting Q matrix')
-                print('Reward Location: Room {} at position {}'.format(stim.rew_id, stim.rew_loc))
                 num_rooms = stim.num_rooms
                 room_ids = stim.env_data['ids']
                 for room_id in room_ids:
+
+                    # Get needed info
                     room_dims = stim.env_data['dims'][:,room_id]
                     locs = [[a,b] for a, b in product(np.arange(room_dims[0]), np.arange(room_dims[1]))]
-                    actions = np.arange(5)
+                    actions = np.arange(num_actions)
 
+                    # Aggregate Q matrices for each location
+                    Q_output = np.zeros([room_dims[0], room_dims[1], num_actions])
+                    for l in locs:
+                        stim.set_agent(inp_id=room_id, loc=l)
+                        Q = sess.run(model.output, feed_dict = {state: np.reshape(stim.return_state(), (state_size, 1))})
+                        Q_output[l[0],l[1],:] = np.squeeze(Q)
+
+                    # Plot specific actions
                     fig, ax = plt.subplots(3,2,figsize=(8,10))
                     for a, ind in zip(actions, [[0,0],[0,1],[1,0],[1,1],[2,0]]):
-
-                        Q_output = np.zeros([room_dims[0], room_dims[1]])
-                        for l in locs:
-                            stim.set_agent(inp_id=room_id, loc=l)
-                            current_state = stim.return_state()
-                            Q = sess.run(model.output, feed_dict = {state: np.reshape(current_state, (state_size, 1))})
-                            Q_output[l[0],l[1]] = Q[a]
-
-                        im = ax[ind[0], ind[1]].imshow(Q_output, cmap='Purples', clim=[np.min(Q_output), np.max(Q_output)])
+                        im = ax[ind[0],ind[1]].imshow(Q_output[:,:,a], cmap='Purples', clim=[np.min(Q_output), np.max(Q_output)])
                         ax[ind[0], ind[1]].set_title('Action "{}"'.format(stim.action_dict[a]))
                         plt.colorbar(im, ax=ax[ind[0], ind[1]])
 
+                    # Room map
                     output = np.zeros([room_dims[0], room_dims[1], 3])
                     door_locs = np.int8(stim.env_data['doors'][room_id])
                     for j in range(len(door_locs)):
@@ -210,9 +212,10 @@ def main(gpu_id = 0):
 
                     ax[2,1].set_title('Room Map (Door=Blue, Rew=Red)')
                     ax[2,1].imshow(output)
+
+                    # Show plots
                     plt.suptitle('Room {}, Doors at {}'.format(room_id, str(stim.env_data['doors'][room_id])))
                     plt.show()
-
 
 
 
