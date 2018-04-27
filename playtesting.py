@@ -8,18 +8,18 @@ env = stimulus.RoomStim()
 while True:
     act = input('--> ')
     if act == 'w':
-        action = [1,0,0,0,0]
+        action = 0
     elif act == 's':
-        action = [0,1,0,0,0]
+        action = 1
     elif act == 'a':
-        action = [0,0,1,0,0]
+        action = 2
     elif act == 'd':
-        action = [0,0,0,1,0]
+        action = 3
     elif act == 'e':
-        action = [0,0,0,0,1]
+        action = 4
     elif act == 'q':
         quit()
 
-    state, reward = env.action(np.array(action))
+    state, reward = env.action(action)
     if reward > 0:
         print('Reward!')
