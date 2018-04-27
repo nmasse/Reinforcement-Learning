@@ -22,18 +22,22 @@ par = {
     'learning_rate'         : 5e-4,
     'noise_std'             : 5e-3,
 
+    'n_td_hid'              : [50],
+    'n_td_out'              : 12,
+    'td_setup'              : 'additive',
+
     # Reinforcement learning parameters
     'gamma'                 : 0.75,
     'epsilon'               : 0.1,
 
     # Cost parameters
-    'spike_cost'            : 0.,
+    'spike_cost'            : 1e-6,
 
     # Training specs
     'num_epochs'            : 1000,
     'max_steps'             : 99,
     'batch_size'            : 1024,
-    'iters_between_outputs' : 200,
+    'iters_between_outputs' : 5,
 
     # Task specs
     'num_rooms'             : 2,

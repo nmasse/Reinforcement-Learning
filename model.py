@@ -18,6 +18,7 @@ class Model():
     def __init__(self, state, state_list, target_Q_list):
 
         self.layer_dims = [par['state_size'], *par['n_hidden'], par['num_actions']]
+        self.td_dims    = [par['state_size'], *par['n_td_hid'], par['n_td_out']]
         self.learning_rate = par['learning_rate']
         self.state = state
         self.noise_std = par['noise_std']
@@ -27,37 +28,65 @@ class Model():
 
         self.declare_variables()
 
-        self.output, _                = self.run(self.state)
-        self.opt_out, self.spike_hist = self.run(self.state_list)
+        self.output, _, self.td          = self.run(self.state)
+        self.opt_out, self.spike_hist, _ = self.run(self.state_list)
 
         self.optimize()
 
 
     def declare_variables(self):
         c = 0.02
+        for i in range(len(self.layer_dims)-1):
+            with tf.variable_scope('feedforward'+str(i)):
+                tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.layer_dims[i+1],self.layer_dims[i]])))
+                tf.get_variable('b', initializer = np.zeros((self.layer_dims[i+1], 1), dtype = np.float32))
 
-        for n in range(len(self.layer_dims)-1):
-            with tf.variable_scope('feedforward'+str(n)):
-                tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.layer_dims[n+1],self.layer_dims[n]])))
-                tf.get_variable('b', initializer = np.zeros((self.layer_dims[n+1], 1), dtype = np.float32))
+        for j in range(len(self.td_dims)-1):
+            with tf.variable_scope('td_feedforward'+str(j)):
+                tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.td_dims[j+1],self.td_dims[j]])))
+                tf.get_variable('b', initializer = np.zeros((self.td_dims[j+1], 1), dtype = np.float32))
+
+        for k in range(len(par['n_hidden'])):
+            with tf.variable_scope('td_interface'):
+                tf.get_variable('td'+str(k), initializer = np.float32(np.random.uniform(-c,c, [par['n_hidden'][k],par['n_td_out']])))
 
 
     def run(self, input_data):
         spike_hist = []
-        x = input_data
+        x  = input_data
+        td = input_data
+
+        for j in range(len(self.td_dims)-1):
+            with tf.variable_scope('td_feedforward'+str(j), reuse=True):
+                W = tf.get_variable('W')
+                b = tf.get_variable('b')
+
+            td = tf.nn.relu(tf.matmul(W, td) + b)
+
         for n in range(len(self.layer_dims)-1):
             with tf.variable_scope('feedforward'+str(n), reuse=True):
                 W = tf.get_variable('W')
                 b = tf.get_variable('b')
-                if n <  len(self.layer_dims)-2:
-                    x = tf.matmul(W, x) + b
-                    x = tf.nn.relu(x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std))
-                    spike_hist.append(x)
-                else:
-                    x = tf.matmul(W, x) + b
-                    x = x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std)
 
-        return x, spike_hist
+            if n < len(self.layer_dims)-2:
+
+                with tf.variable_scope('td_interface', reuse=True):
+                    W_td = tf.get_variable('td'+str(n))
+
+                if par['td_setup'] == 'additive':
+                    x = tf.matmul(W, x) - tf.nn.relu(tf.matmul(W_td, td)) + b
+
+                elif par['td_setup'] == 'multiplicative':
+                    x = (tf.matmul(W, x) + b) * tf.nn.sigmoid(tf.matmul(W_td, td))
+
+                x = tf.nn.relu(x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std))
+                spike_hist.append(x)
+
+            else:
+                x = tf.matmul(W, x) + b
+                x = x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std)
+
+        return x, spike_hist, td
 
 
     def optimize(self):
@@ -159,6 +188,9 @@ def main(gpu_id = 0):
                 print('Outputting Q matrix')
                 num_rooms = stim.num_rooms
                 room_ids = stim.env_data['ids']
+
+                room_Qs = []
+                room_tds = []
                 for room_id in room_ids:
 
                     # Get needed info
@@ -166,12 +198,30 @@ def main(gpu_id = 0):
                     locs = [[a,b] for a, b in product(np.arange(room_dims[0]), np.arange(room_dims[1]))]
                     actions = np.arange(par['num_actions'])
 
-                    # Aggregate Q matrices for each location
+                    # Aggregate Q matrices and td vectors  for each location
                     Q_output = np.zeros([room_dims[0], room_dims[1], par['num_actions']])
+                    td_output = np.zeros([room_dims[0], room_dims[1], par['n_td_out']])
                     for l in locs:
                         stim.set_agent(inp_id=room_id, loc=l)
-                        Q = sess.run(model.output, feed_dict = {state: np.reshape(stim.return_state(), (par['state_size'], 1))})
+                        Q, td = sess.run([model.output, model.td], feed_dict = {state: np.reshape(stim.return_state(), (par['state_size'], 1))})
                         Q_output[l[0],l[1],:] = np.squeeze(Q)
+                        td_output[l[0],l[1],:] = np.squeeze(td)
+
+                    room_Qs.append(Q_output)
+                    room_tds.append(td_output)
+
+
+                for room_id, td_output in zip(room_ids, room_tds):
+                    # Return TD vectors for each room
+                    mean = np.mean(td_output, axis=(0,1))
+                    std  = np.std(td_output, axis=(0,1))
+                    print('\nRoom {}:'.format(room_id))
+                    strings = ['{:>2} | {:0.4f} +/- {:0.4f}'.format(i, mean[i], std[i]) for i in range(par['n_td_out'])]
+                    for s in range(0, len(strings), 2):
+                        print('\t', strings[s], '\t', strings[s+1])
+
+
+                for room_id, Q_output in zip(room_ids, room_Qs):
 
                     # Plot specific actions
                     fig, ax = plt.subplots(3,2,figsize=(8,10))
