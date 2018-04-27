@@ -1,4 +1,5 @@
 import numpy as np
+import graph as graph_setup
 #from parameters import *
 
 
@@ -6,7 +7,7 @@ class RoomStim:
 
     def __init__(self):
         self.num_doors = 2
-        self.num_rooms = 8
+        self.num_rooms = 4
         self.widths = np.arange(3,6)
         self.heights = np.arange(3,6)
         self.random_rooms = False
@@ -15,6 +16,10 @@ class RoomStim:
         self.rew_id  = 4
         self.rew_loc = [1,1]
 
+        max_doors = self.widths[0]*self.heights[0] - (self.widths[0]-2)*(self.heights[0]-2) - 4
+        if self.num_doors > max_doors:
+            raise Exception('Too many doors for the smallest room.')
+
         self.new_environment(num_rooms=self.num_rooms)
         self.reset_agent()
 
@@ -22,7 +27,7 @@ class RoomStim:
     def action(self, action_vector):
 
         action = self.move_agent(action_vector)
-        print('-->', action, '\n')
+        print('-->', action, 'to {} in room {}\n'.format(self.loc, self.id))
         self.get_state()
         self.print_room()
 
@@ -30,7 +35,7 @@ class RoomStim:
 
 
     def move_agent(self, action_vector):
-        action_vector = np.exp(action_vector)/np.sum(np.exp(action_vector))
+        #action_vector = np.exp(action_vector)/np.sum(np.exp(action_vector))
         action = self.action_dict[np.random.choice(np.arange(len(action_vector)), p=action_vector)]
 
         if action == 'up':
@@ -42,14 +47,13 @@ class RoomStim:
         elif action == 'right':
             self.loc[1] = np.min([self.env_data['dims'][1,self.id]-1, self.loc[1]+1])
         elif action == 'door':
-            if self.loc == self.env_data['doors'][self.id,0].tolist():
-                self.id = self.env_data['graph'][self.id][0]
-                self.loc = np.int8(self.env_data['doors'][self.id,0]).tolist()
-            elif self.loc == self.env_data['doors'][self.id,1].tolist():
-                self.id = self.env_data['graph'][self.id][1]
-                self.loc = np.int8(self.env_data['doors'][self.id,1]).tolist()
+            if self.loc in self.env_data['doors'][self.id,:].tolist():
+                print('-'*40)
+                ind = self.env_data['doors'][self.id,:].tolist().index(self.loc)
+                self.id = self.env_data['graph'][self.id][ind]
+                self.loc = np.int8(self.env_data['doors'][self.id,ind]).tolist()
             else:
-                pass    # There is no door
+                pass    # There is no door here
 
     def set_agent(self, inp_id, loc):
         self.id = inp_id
@@ -83,40 +87,48 @@ class RoomStim:
 
 
     def make_rooms(self, num_rooms):
-        room_ids = np.arange(num_rooms)
+        room_ids, room_graph = self.graph_rooms()
         room_widths = np.random.choice(self.widths, num_rooms)
         room_heights = np.random.choice(self.heights, num_rooms)
         door_locs = np.zeros([num_rooms, self.num_doors, 2])
+
         for i in room_ids:
-            while door_locs[i,0,0] == door_locs[i,1,0] and door_locs[i,0,1] == door_locs[i,1,1]:
-                for j in range(self.num_doors):
-                    if j < self.num_doors//2:
-                        door_locs[i,j,:] = [np.random.choice([0, room_widths[i]-1]), np.random.choice(room_heights[i])]
-                    else:
-                        door_locs[i,j,:] = [np.random.choice(room_widths[i]), np.random.choice([0, room_heights[i]-1])]
+            w = room_widths[i]
+            h = room_heights[i]
+
+            locs1 = np.stack([np.arange(1,w-1), np.full(w-2,0)]).T.tolist()
+            locs2 = np.stack([np.arange(1,w-1), np.full(w-2,h-1)]).T.tolist()
+            locs3 = np.stack([np.full(h-2,0), np.arange(1,h-1)]).T.tolist()
+            locs4 = np.stack([np.full(h-2,w-1), np.arange(1,h-1)]).T.tolist()
+            locs = locs1 + locs2 + locs3 + locs4
+
+            loc_set = np.random.choice(len(locs), self.num_doors, replace=False)
+            door_locs[i,:,:] = [locs[loc_set[n]] for n in range(self.num_doors)]
 
         room_dims = np.stack([room_widths, room_heights])
-        room_graph = self.graph_rooms(room_ids)
 
         return room_ids, room_dims, door_locs, room_graph
 
 
-    def graph_rooms(self, room_ids):
-        room_graph = {}
-        if self.num_doors == 2:
-            for i in room_ids:
-                room_graph[i] = [(i-1)%len(room_ids), (i+1)%len(room_ids)]
-        else:
-            raise Exception("Can only use two doors, for now.")
+    def graph_rooms(self):
+        room_ids, graph = graph_setup.make_new_graph(self.num_rooms, self.num_doors)
 
-        return room_graph
+        return room_ids, graph
 
 
     def print_room(self):
         locs = np.int8(self.env_data['doors'][self.id])
         out = np.zeros(self.env_data['dims'][:,self.id])
+
+        # Show doors
         for j in range(self.num_doors):
             out[locs[j,0], locs[j,1]] = 1
+
+        # Show reward
+        if self.id == self.rew_id:
+            out[self.rew_loc[0], self.rew_loc[1]] = 3
+
+        # Show agent
         out[self.loc[0], self.loc[1]] = 2
         print(np.int8(out))
         print('S:', self.state, '\n')
@@ -149,11 +161,17 @@ def mod8_base2(n):
     return out[::-1]
 
 
-
+"""
 r = RoomStim()
-for i in range(5):
-    r.action(np.random.rand(5))
+for i in range(10):
+    act = np.random.rand(5)
+    act = np.exp(act)/np.sum(np.exp(act))
+    r.action(act)
 
+print('-'*70)
 r.reset_agent()
 for i in range(10):
-    r.action(np.random.rand(5))
+    act = np.random.rand(5)
+    act = np.exp(act)/np.sum(np.exp(act))
+    r.action(act)
+"""
