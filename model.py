@@ -25,29 +25,39 @@ class Model():
         self.state_list = state_list
         self.target_Q_list = target_Q_list
 
-        self.run()
+        self.declare_variables()
+
+        self.output, _                = self.run(self.state)
+        self.opt_out, self.spike_hist = self.run(self.state_list)
 
         self.optimize()
 
-    def run(self):
 
+    def declare_variables(self):
         c = 0.02
 
-        self.spike_hist = []
-        x = self.state
         for n in range(len(self.layer_dims)-1):
             with tf.variable_scope('feedforward'+str(n)):
-                W = tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.layer_dims[n+1],self.layer_dims[n]])))
-                b = tf.get_variable('b', initializer = np.zeros((self.layer_dims[n+1], 1), dtype = np.float32))
+                tf.get_variable('W', initializer = np.float32(np.random.uniform(-c,c, [self.layer_dims[n+1],self.layer_dims[n]])))
+                tf.get_variable('b', initializer = np.zeros((self.layer_dims[n+1], 1), dtype = np.float32))
+
+
+    def run(self, input_data):
+        spike_hist = []
+        x = input_data
+        for n in range(len(self.layer_dims)-1):
+            with tf.variable_scope('feedforward'+str(n), reuse=True):
+                W = tf.get_variable('W')
+                b = tf.get_variable('b')
                 if n <  len(self.layer_dims)-2:
                     x = tf.matmul(W, x) + b
                     x = tf.nn.relu(x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std))
-                    self.spike_hist.append(x)
+                    spike_hist.append(x)
                 else:
                     x = tf.matmul(W, x) + b
                     x = x + tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std)
 
-        self.output = x
+        return x, spike_hist
 
 
     def optimize(self):
@@ -55,21 +65,7 @@ class Model():
         # Use all trainable variables
         opt = tf.train.AdamOptimizer(learning_rate = self.learning_rate)
 
-        self.spike_hist = []
-        x = self.state_list
-        for n in range(len(self.layer_dims)-1):
-            with tf.variable_scope('feedforward'+str(n), reuse = True):
-                W = tf.get_variable('W')
-                b = tf.get_variable('b')
-                if n <  len(self.layer_dims)-2:
-                    x = tf.nn.relu(tf.matmul(W, x) + b)
-                    x += tf.nn.relu(tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std))
-                    self.spike_hist.append(x)
-                else:
-                    x = tf.matmul(W, x) + b
-                    x += tf.random_normal(x.shape, mean=0.0, stddev=self.noise_std)
-
-        self.perf_loss = tf.reduce_mean(tf.square(x - self.target_Q_list))
+        self.perf_loss = tf.reduce_mean(tf.square(self.opt_out - self.target_Q_list))
         self.spike_loss = par['spike_cost']*tf.reduce_mean(self.spike_hist)
         self.train_op = opt.minimize(self.perf_loss + self.spike_loss)
 
