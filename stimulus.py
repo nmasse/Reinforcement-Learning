@@ -51,7 +51,9 @@ class RoomStim:
             else:
                 pass    # There is no door
 
-        return action
+    def set_agent(self, inp_id, loc):
+        self.id = inp_id
+        self.loc = loc
 
 
     def get_state(self):
