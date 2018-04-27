@@ -1,16 +1,15 @@
 import numpy as np
 import graph as graph_setup
-#from parameters import *
+from parameters import *
 
 
 class RoomStim:
 
     def __init__(self):
-        self.num_doors = 1
-        self.num_rooms = 2
-        self.widths = np.arange(6,8)
-        self.heights = np.arange(6,8)
-        self.random_rooms = False
+        self.num_doors = par['num_doors']
+        self.num_rooms = par['num_rooms']
+        self.widths = np.arange(*par['room_widths'])
+        self.heights = np.arange(*par['room_heights'])
         self.action_dict = {0:'up', 1:'down', 2:'left', 3:'right', 4:'door'}
 
         self.rew_id  = self.num_rooms - 1
